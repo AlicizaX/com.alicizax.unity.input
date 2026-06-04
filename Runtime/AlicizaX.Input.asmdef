@@ -1,0 +1,35 @@
+{
+    "name": "AlicizaX.Input",
+    "rootNamespace": "",
+    "references": [
+        "GUID:6055be8ebefd69e48b49212b09b47b2f",
+        "GUID:75469ad4d38634e559750d17036d5f7c",
+        "GUID:1619e00706139ce488ff80c0daeea8e7",
+        "GUID:33661e06c33d31b4c9223810bf503247"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        {
+            "name": "com.unity.ugui",
+            "expression": "2.0.0",
+            "define": "TEXTMESHPRO_SUPPORT"
+        },
+        {
+            "name": "com.unity.textmeshpro",
+            "expression": "",
+            "define": "TEXTMESHPRO_SUPPORT"
+        },
+        {
+            "name": "com.unity.inputsystem",
+            "expression": "1.0.0",
+            "define": "INPUTSYSTEM_SUPPORT"
+        }
+    ],
+    "noEngineReferences": false
+}

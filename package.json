@@ -1,0 +1,25 @@
+{
+  "name": "com.alicizax.unity.input",
+  "displayName": "Aliciza X Input",
+  "category": "Aliciza X",
+  "description": "Aliciza X Input Extension",
+  "version": "2.0.0",
+  "unity": "2022.3",
+  "keywords": [
+    "Aliciza X",
+    "Aliciza X Input",
+    "Input",
+    "Framework"
+  ],
+  "repository": {
+    "name": "com.alicizax.unity.input",
+    "url": "https://github.com/AlicizaX/com.alicizax.unity.input.git",
+    "type": "git"
+  },
+  "author": {
+    "name": "Yuliuren",
+    "email": "yuliuren00@gmail.com"
+  },
+  "dependencies": {
+  }
+}
