@@ -1,7 +1,7 @@
 #if INPUTSYSTEM_SUPPORT
 using System;
 
-public sealed class InputGlyphGuidMap<TValue>
+internal sealed class InputGlyphGuidMap<TValue>
 {
     private const int InitialCapacity = 16;
 

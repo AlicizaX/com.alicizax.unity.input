@@ -177,7 +177,7 @@ public sealed class InputGlyphEditor : Editor
                 }
 
                 EditorGUILayout.EndHorizontal();
-                EditorUtils.TrHelpIconText("Supports ActionName or MapName/ActionName.", MessageType.None);
+                EditorUtils.TrHelpIconText("Use full action path: MapName/ActionName.", MessageType.None);
                 break;
         }
     }

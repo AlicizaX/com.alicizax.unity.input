@@ -3,25 +3,77 @@ using System;
 using Cysharp.Text;
 using UnityEngine;
 
+/// <summary>
+/// 描述用于匹配输入设备的条件和优先级。
+/// </summary>
 [Serializable]
 public sealed class InputDeviceMatcher
 {
+    /// <summary>
+    /// 匹配成功时附加的优先级分数。
+    /// </summary>
     public int priority;
+
+    /// <summary>
+    /// 需要匹配的设备厂商 ID，值为 0 时忽略。
+    /// </summary>
     public int vendorId;
+
+    /// <summary>
+    /// 需要匹配的设备产品 ID，值为 0 时忽略。
+    /// </summary>
     public int productId;
+
+    /// <summary>
+    /// 设备布局名称需要包含的文本。
+    /// </summary>
     public string layoutContains;
+
+    /// <summary>
+    /// 设备接口名称需要包含的文本。
+    /// </summary>
     public string interfaceContains;
+
+    /// <summary>
+    /// 设备制造商名称需要包含的文本。
+    /// </summary>
     public string manufacturerContains;
+
+    /// <summary>
+    /// 设备产品名称需要包含的文本。
+    /// </summary>
     public string productContains;
+
+    /// <summary>
+    /// 设备名称需要包含的文本。
+    /// </summary>
     public string deviceNameContains;
+
+    /// <summary>
+    /// 控制方案名称需要包含的文本。
+    /// </summary>
     public string controlSchemeContains;
 }
 
+/// <summary>
+/// 描述一个输入控制路径到图标资源的映射。
+/// </summary>
 [Serializable]
 public sealed class InputGlyphMapping
 {
+    /// <summary>
+    /// 可匹配到该图标的 Unity Input System 控制路径列表。
+    /// </summary>
     public string[] controlPaths = Array.Empty<string>();
+
+    /// <summary>
+    /// UI 显示时使用的 Sprite 资源。
+    /// </summary>
     public Sprite sprite;
+
+    /// <summary>
+    /// TextMeshPro Sprite 图集中的 Sprite 名称，未设置时使用 Sprite 资源名称。
+    /// </summary>
     public string tmpSpriteName;
 
     [SerializeField, HideInInspector] private string glyphKey;
@@ -35,13 +87,35 @@ public sealed class InputGlyphMapping
     }
 }
 
+/// <summary>
+/// 描述一种输入设备图标配置档案。
+/// </summary>
 [Serializable]
 public sealed class InputDeviceProfileConfig
 {
+    /// <summary>
+    /// 配置档案 ID。
+    /// </summary>
     public string profileId;
+
+    /// <summary>
+    /// 当前档案找不到图标时依次查找的回退档案 ID。
+    /// </summary>
     public string[] fallbackProfileIds = Array.Empty<string>();
+
+    /// <summary>
+    /// 用于匹配 InputAction 绑定分组的提示文本。
+    /// </summary>
     public string[] bindingGroupHints = Array.Empty<string>();
+
+    /// <summary>
+    /// 用于将设备信息解析到该档案的匹配器列表。
+    /// </summary>
     public InputDeviceMatcher[] matchers = Array.Empty<InputDeviceMatcher>();
+
+    /// <summary>
+    /// 该档案下的输入控制路径和图标映射列表。
+    /// </summary>
     public InputGlyphMapping[] glyphs = Array.Empty<InputGlyphMapping>();
 
     [NonSerialized] internal int[] GlyphHashBySlot = Array.Empty<int>();
@@ -50,6 +124,9 @@ public sealed class InputDeviceProfileConfig
     [NonSerialized] internal int GlyphSlotMask;
 }
 
+/// <summary>
+/// 输入图标数据库，负责设备档案解析和图标资源查询。
+/// </summary>
 public sealed class InputGlyphDatabase : ScriptableObject
 {
     private const int InitialProfileCapacity = 8;
@@ -67,6 +144,9 @@ public sealed class InputGlyphDatabase : ScriptableObject
         InputGlyphProfileIds.SteamDeck,
     };
 
+    /// <summary>
+    /// 找不到指定图标时使用的占位 Sprite。
+    /// </summary>
     public Sprite placeholderSprite;
     [SerializeField, HideInInspector] private InputDeviceProfileConfig[] profiles = Array.Empty<InputDeviceProfileConfig>();
 
@@ -75,6 +155,9 @@ public sealed class InputGlyphDatabase : ScriptableObject
     private int _profileSlotMask = InitialProfileCapacity - 1;
     private bool _cacheBuilt;
 
+    /// <summary>
+    /// 当前数据库中的配置档案数量。
+    /// </summary>
     public int ProfileCount
     {
         get
@@ -100,6 +183,10 @@ public sealed class InputGlyphDatabase : ScriptableObject
         EditorEnsureDefaultProfiles();
     }
 
+    /// <summary>
+    /// 在编辑器中确保默认配置档案存在，并重建缓存。
+    /// </summary>
+    /// <returns>默认配置档案内容发生变化时返回 true，否则返回 false。</returns>
     public bool EditorEnsureDefaultProfiles()
     {
         bool changed = EnsureDefaultProfiles();
@@ -107,12 +194,28 @@ public sealed class InputGlyphDatabase : ScriptableObject
         return changed;
     }
 
+    /// <summary>
+    /// 在编辑器中手动重建配置档案和图标缓存。
+    /// </summary>
     public void EditorRefreshCache()
     {
         BuildCache();
     }
 #endif
 
+    /// <summary>
+    /// 根据设备标识、控制方案和设备文本信息尝试解析最匹配的设备配置档案。
+    /// </summary>
+    /// <param name="vendorId">设备厂商 ID。</param>
+    /// <param name="productId">设备产品 ID。</param>
+    /// <param name="controlScheme">当前输入控制方案名称。</param>
+    /// <param name="deviceName">设备名称。</param>
+    /// <param name="layout">设备布局名称。</param>
+    /// <param name="interfaceName">设备接口名称。</param>
+    /// <param name="manufacturer">设备制造商名称。</param>
+    /// <param name="product">设备产品名称。</param>
+    /// <param name="profile">输出匹配到的设备配置档案；未匹配时输出键鼠默认档案或 null。</param>
+    /// <returns>成功解析到设备配置档案时返回 true，否则返回 false。</returns>
     public bool TryResolveProfile(
         int vendorId,
         int productId,
@@ -160,6 +263,18 @@ public sealed class InputGlyphDatabase : ScriptableObject
         return TryGetProfile(InputGlyphProfileIds.KeyboardMouse, out profile);
     }
 
+    /// <summary>
+    /// 根据设备标识、控制方案和设备文本信息解析最匹配的配置档案 ID。
+    /// </summary>
+    /// <param name="vendorId">设备厂商 ID。</param>
+    /// <param name="productId">设备产品 ID。</param>
+    /// <param name="controlScheme">当前输入控制方案名称。</param>
+    /// <param name="deviceName">设备名称。</param>
+    /// <param name="layout">设备布局名称。</param>
+    /// <param name="interfaceName">设备接口名称。</param>
+    /// <param name="manufacturer">设备制造商名称。</param>
+    /// <param name="product">设备产品名称。</param>
+    /// <returns>匹配到的配置档案 ID；未匹配时返回键鼠默认档案 ID。</returns>
     public string ResolveProfileId(
         int vendorId,
         int productId,
@@ -184,6 +299,12 @@ public sealed class InputGlyphDatabase : ScriptableObject
             : InputGlyphProfileIds.KeyboardMouse;
     }
 
+    /// <summary>
+    /// 根据配置档案 ID 尝试获取配置档案。
+    /// </summary>
+    /// <param name="profileId">要查询的配置档案 ID。</param>
+    /// <param name="profile">输出匹配到的设备配置档案，查询失败时为 null。</param>
+    /// <returns>成功找到配置档案时返回 true，否则返回 false。</returns>
     public bool TryGetProfile(string profileId, out InputDeviceProfileConfig profile)
     {
         EnsureCache();
@@ -217,6 +338,13 @@ public sealed class InputGlyphDatabase : ScriptableObject
         return false;
     }
 
+    /// <summary>
+    /// 根据图标键和配置档案 ID 尝试获取 UI Sprite。
+    /// </summary>
+    /// <param name="glyphKey">图标数据库使用的规范化图标键。</param>
+    /// <param name="profileId">用于查询图标的输入设备配置档案 ID。</param>
+    /// <param name="sprite">输出匹配到的 UI Sprite；未匹配但存在占位 Sprite 时输出占位 Sprite。</param>
+    /// <returns>成功获取匹配 Sprite 或占位 Sprite 时返回 true，否则返回 false。</returns>
     public bool TryGetSprite(string glyphKey, string profileId, out Sprite sprite)
     {
         sprite = null;
@@ -236,6 +364,14 @@ public sealed class InputGlyphDatabase : ScriptableObject
         return sprite != null;
     }
 
+    /// <summary>
+    /// 根据图标键和配置档案 ID 尝试获取 TextMeshPro Sprite 名称及对应 Sprite。
+    /// </summary>
+    /// <param name="glyphKey">图标数据库使用的规范化图标键。</param>
+    /// <param name="profileId">用于查询图标的输入设备配置档案 ID。</param>
+    /// <param name="spriteName">输出 TextMeshPro Sprite 图集中的 Sprite 名称，查询失败时为 null。</param>
+    /// <param name="sprite">输出 Sprite 资源；映射未设置资源时可能为 null。</param>
+    /// <returns>成功获取 TextMeshPro Sprite 名称时返回 true，否则返回 false。</returns>
     public bool TryGetTMPName(string glyphKey, string profileId, out string spriteName, out Sprite sprite)
     {
         spriteName = null;
