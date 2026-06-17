@@ -118,11 +118,7 @@ namespace AlicizaX.UI.UXNavigation
             EnsureRuntimeBuffers(false);
             RefreshBaselineWhenUnsuppressed();
             SubscribeHolderEvents();
-            UXNavigationManager manager = UXNavigationManager.Instance;
-            if (manager != null)
-            {
-                manager.RegisterScope(this);
-            }
+            UXNavigationSystem.RegisterScope(this);
         }
 
         private void OnEnable()
@@ -140,7 +136,7 @@ namespace AlicizaX.UI.UXNavigation
             }
 
             MarkSelectableAvailabilityDirty();
-            UXNavigationManager.RequestRefresh(true);
+            UXNavigationSystem.RequestRefresh(true);
         }
 
         private System.Collections.IEnumerator RefreshNavigationAfterEnable()
@@ -148,7 +144,7 @@ namespace AlicizaX.UI.UXNavigation
             yield return null;
             _refreshAfterEnableCoroutine = null;
             MarkSelectableAvailabilityDirty();
-            UXNavigationManager.RequestRefresh(true);
+            UXNavigationSystem.RequestRefresh(true);
         }
 
 
@@ -156,15 +152,7 @@ namespace AlicizaX.UI.UXNavigation
         {
             UnsubscribeHolderEvents();
             SetNavigationSuppressed(false);
-            UXNavigationManager manager = UXNavigationManager.Instance;
-            if (manager != null)
-            {
-                manager.UnregisterScope(this);
-            }
-            else
-            {
-                RuntimeIndex = InvalidIndex;
-            }
+            UXNavigationSystem.UnregisterScope(this);
         }
 
         private void OnTransformChildrenChanged()
@@ -302,13 +290,13 @@ namespace AlicizaX.UI.UXNavigation
         private void OnWindowShown()
         {
             MarkSelectableAvailabilityDirty();
-            UXNavigationManager.RequestRefresh(true);
+            UXNavigationSystem.RequestRefresh(true);
         }
 
         private void OnWindowClosed()
         {
             MarkSelectableAvailabilityDirty();
-            UXNavigationManager.RequestRefresh(true);
+            UXNavigationSystem.RequestRefresh(true);
         }
 
         internal int GetHierarchyDepth()
@@ -818,11 +806,7 @@ namespace AlicizaX.UI.UXNavigation
 
         private void MarkRuntimeStateDirty()
         {
-            UXNavigationManager manager = UXNavigationManager.Instance;
-            if (manager != null)
-            {
-                manager.MarkStateDirty();
-            }
+            UXNavigationSystem.MarkStateDirty();
         }
     }
 }
