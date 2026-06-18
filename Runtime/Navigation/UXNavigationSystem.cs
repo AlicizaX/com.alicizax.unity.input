@@ -1,5 +1,6 @@
 #if INPUTSYSTEM_SUPPORT
 using System;
+using AlicizaX;
 using AlicizaX.UI.Runtime;
 #if UNITY_EDITOR
 using UnityEditor;
@@ -401,7 +402,7 @@ namespace AlicizaX.UI.UXNavigation
         private static void ReportCapacityExceeded()
         {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-            Debug.LogError("UXNavigationSystem scope capacity exceeded.");
+            Log.Error("UXNavigationSystem scope capacity exceeded.");
 #endif
         }
 

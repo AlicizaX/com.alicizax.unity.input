@@ -386,12 +386,12 @@ namespace UnityEngine.UI
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             else
             {
-                Debug.LogError("Hotkey registry is inconsistent: scope missing during unregister.");
+                Log.Error("Hotkey registry is inconsistent: scope missing during unregister.");
             }
 
             if (!removedFromScope)
             {
-                Debug.LogError("Hotkey registry is inconsistent: trigger slot missing during unregister.");
+                Log.Error("Hotkey registry is inconsistent: trigger slot missing during unregister.");
             }
 #endif
 
@@ -1170,9 +1170,8 @@ namespace UnityEngine.UI
             }
 
             string triggerName = GetTriggerGameObjectName(trigger);
-            Debug.LogWarning(
-                $"{triggerName} observes disabled hotkey action {action.name}. The hotkey system will not enable it; make sure the owning input map is enabled externally.",
-                trigger as Object);
+            Log.Warning(
+                $"{triggerName} observes disabled hotkey action {action.name}. The hotkey system will not enable it; make sure the owning input map is enabled externally.");
         }
 
         private static void WarnRegistrationConflict(
@@ -1186,9 +1185,8 @@ namespace UnityEngine.UI
             string holderName = scope.Holder != null ? scope.Holder.name : "<null>";
             string registeredName = GetTriggerGameObjectName(registeredTrigger);
             string rejectedName = GetTriggerGameObjectName(rejectedTrigger);
-            Debug.LogWarning(
-                $"{rejectedName} repeated hotkey registration for {actionName} on holder {holderName} ({pressType}). Existing registration on {registeredName} keeps working; duplicate registration is ignored.",
-                rejectedTrigger as Object);
+            Log.Warning(
+                $"{rejectedName} repeated hotkey registration for {actionName} on holder {holderName} ({pressType}). Existing registration on {registeredName} keeps working; duplicate registration is ignored.");
         }
 
         private static string GetTriggerGameObjectName(IHotkeyTrigger trigger)
@@ -1228,7 +1226,7 @@ namespace UnityEngine.UI
             if (holder == null)
             {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-                Debug.LogWarning("Hotkey trigger could not find a UIHolderObjectBase owner.");
+                Log.Warning("Hotkey trigger could not find a UIHolderObjectBase owner.");
 #endif
                 return;
             }

@@ -1,6 +1,7 @@
 #if INPUTSYSTEM_SUPPORT
 using System;
 using System.Threading.Tasks;
+using AlicizaX;
 using TMPro;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -224,7 +225,7 @@ public sealed class TestRebindScript : MonoBehaviour
         }
         catch (Exception exception)
         {
-            Debug.LogException(exception, this);
+            Log.Exception(exception);
             SetStatus("Failed to apply binding.");
             return false;
         }
@@ -246,7 +247,7 @@ public sealed class TestRebindScript : MonoBehaviour
         }
         catch (Exception exception)
         {
-            Debug.LogException(exception, this);
+            Log.Exception(exception);
             SetStatus("Failed to reset bindings.");
         }
         finally
