@@ -12,6 +12,8 @@ namespace UnityEngine.UI
         [SerializeField] private UIHolderObjectBase _holder;
         [SerializeField] private InputActionReference _hotkeyAction;
         [SerializeField] private EHotkeyPressType _hotkeyPressType = EHotkeyPressType.Performed;
+        [SerializeField] private EHotkeyActionOwnershipMode _hotkeyActionOwnershipMode = EHotkeyActionOwnershipMode.ObserveOnly;
+        [SerializeField] private bool _hotkeyConsumesInput = true;
 
         private ISubmitHandler _submitHandler;
         private BaseEventData _eventData;
@@ -20,11 +22,32 @@ namespace UnityEngine.UI
         public InputActionReference HotkeyAction
         {
             get => _hotkeyAction;
-            set => _hotkeyAction = value;
+            set
+            {
+                if (ReferenceEquals(_hotkeyAction, value))
+                {
+                    return;
+                }
+
+                bool shouldRebind = Application.isPlaying && isActiveAndEnabled;
+                if (shouldRebind)
+                {
+                    ((IHotkeyTrigger)this).UnBindHotKey();
+                }
+
+                _hotkeyAction = value;
+
+                if (shouldRebind)
+                {
+                    ((IHotkeyTrigger)this).BindHotKey();
+                }
+            }
         }
 
         public EHotkeyPressType HotkeyPressType => _hotkeyPressType;
         public UIHolderObjectBase HotkeyHolder => _holder;
+        public bool HotkeyConsumesInput => _hotkeyConsumesInput;
+        public EHotkeyActionOwnershipMode HotkeyActionOwnershipMode => _hotkeyActionOwnershipMode;
 
         private void Reset()
         {
@@ -80,6 +103,12 @@ namespace UnityEngine.UI
             {
                 _component = null;
             }
+
+            if (Application.isPlaying && isActiveAndEnabled)
+            {
+                ((IHotkeyTrigger)this).UnBindHotKey();
+                ((IHotkeyTrigger)this).BindHotKey();
+            }
         }
 #endif
 
@@ -90,12 +119,13 @@ namespace UnityEngine.UI
                 return;
             }
 
-            if (_eventData == null)
+            EventSystem currentEventSystem = EventSystem.current;
+            if (!ReferenceEquals(_eventSystem, currentEventSystem))
             {
-                return;
+                CacheEventData(currentEventSystem);
             }
 
-            if (!ReferenceEquals(_eventSystem, EventSystem.current))
+            if (_eventData == null || _eventSystem == null)
             {
                 return;
             }
@@ -133,7 +163,18 @@ namespace UnityEngine.UI
 
         private void CacheEventData()
         {
-            _eventSystem = EventSystem.current;
+            CacheEventData(EventSystem.current);
+        }
+
+        private void CacheEventData(EventSystem eventSystem)
+        {
+            _eventSystem = eventSystem;
+            if (_eventSystem == null)
+            {
+                _eventData = null;
+                return;
+            }
+
             _eventData = new BaseEventData(_eventSystem);
         }
     }

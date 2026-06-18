@@ -11,6 +11,8 @@ namespace UnityEditor.UI
     {
         private SerializedProperty _hotkeyAction;
         private SerializedProperty _hotkeyPressType;
+        private SerializedProperty _hotkeyActionOwnershipMode;
+        private SerializedProperty _hotkeyConsumesInput;
         private SerializedProperty _component;
         private SerializedProperty _holder;
 
@@ -20,6 +22,8 @@ namespace UnityEditor.UI
             _holder = serializedObject.FindProperty("_holder");
             _hotkeyAction = serializedObject.FindProperty("_hotkeyAction");
             _hotkeyPressType = serializedObject.FindProperty("_hotkeyPressType");
+            _hotkeyActionOwnershipMode = serializedObject.FindProperty("_hotkeyActionOwnershipMode");
+            _hotkeyConsumesInput = serializedObject.FindProperty("_hotkeyConsumesInput");
         }
 
         public override void OnInspectorGUI()
@@ -71,6 +75,8 @@ namespace UnityEditor.UI
 
                 EditorGUILayout.PropertyField(_hotkeyAction, new GUIContent("Input Action"));
                 EditorGUILayout.PropertyField(_hotkeyPressType, new GUIContent("Press Type"));
+                EditorGUILayout.PropertyField(_hotkeyActionOwnershipMode, new GUIContent("Action Ownership"));
+                EditorGUILayout.PropertyField(_hotkeyConsumesInput, new GUIContent("Consumes Input"));
             }
 
             serializedObject.ApplyModifiedProperties();

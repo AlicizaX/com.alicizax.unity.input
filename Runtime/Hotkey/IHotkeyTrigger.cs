@@ -8,6 +8,8 @@ namespace UnityEngine.UI
     {
         InputActionReference HotkeyAction { get; }
         EHotkeyPressType HotkeyPressType { get; }
+        EHotkeyActionOwnershipMode HotkeyActionOwnershipMode { get; }
+        bool HotkeyConsumesInput { get; }
         UIHolderObjectBase HotkeyHolder { get; }
         void HotkeyActionTrigger();
     }

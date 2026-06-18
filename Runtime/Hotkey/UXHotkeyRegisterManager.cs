@@ -1,6 +1,8 @@
 #if INPUTSYSTEM_SUPPORT
 using System;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
+using AlicizaX;
 using AlicizaX.UI.Runtime;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -10,17 +12,49 @@ namespace UnityEngine.UI
     public enum EHotkeyPressType : byte
     {
         Started = 0,
-        Performed = 1
+        Performed = 1,
+        Canceled = 2
+    }
+
+    public enum EHotkeyActionOwnershipMode : byte
+    {
+        ObserveOnly = 0,
+        EnableWhileRegistered = 1
+    }
+
+    internal sealed class ReferenceEqualityComparer<TKey> : IEqualityComparer<TKey> where TKey : class
+    {
+        public static readonly ReferenceEqualityComparer<TKey> Instance = new();
+
+        private ReferenceEqualityComparer()
+        {
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool Equals(TKey x, TKey y)
+        {
+            return ReferenceEquals(x, y);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public int GetHashCode(TKey obj)
+        {
+            return obj != null ? RuntimeHelpers.GetHashCode(obj) : 0;
+        }
     }
 
     internal readonly struct HotkeyRegistration
     {
         public readonly IHotkeyTrigger Trigger;
+        public readonly bool ConsumesInput;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public HotkeyRegistration(IHotkeyTrigger trigger)
+        public HotkeyRegistration(
+            IHotkeyTrigger trigger,
+            bool consumesInput)
         {
             Trigger = trigger;
+            ConsumesInput = consumesInput;
         }
     }
 
@@ -28,13 +62,22 @@ namespace UnityEngine.UI
     {
         public readonly HotkeyRegistrationList StartedRegistrations = new();
         public readonly HotkeyRegistrationList PerformedRegistrations = new();
+        public readonly HotkeyRegistrationList CanceledRegistrations = new();
 
-        public bool IsEmpty => StartedRegistrations.Count == 0 && PerformedRegistrations.Count == 0;
+        public bool IsEmpty =>
+            StartedRegistrations.Count == 0
+            && PerformedRegistrations.Count == 0
+            && CanceledRegistrations.Count == 0;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public HotkeyRegistrationList GetRegistrations(EHotkeyPressType pressType)
         {
-            return pressType == EHotkeyPressType.Started ? StartedRegistrations : PerformedRegistrations;
+            return pressType switch
+            {
+                EHotkeyPressType.Started => StartedRegistrations,
+                EHotkeyPressType.Canceled => CanceledRegistrations,
+                _ => PerformedRegistrations
+            };
         }
     }
 
@@ -44,11 +87,7 @@ namespace UnityEngine.UI
 
         public int Count { get; private set; }
 
-        public HotkeyRegistration this[int index]
-        {
-            get => _items[index];
-            set => _items[index] = value;
-        }
+        public HotkeyRegistration this[int index] => _items[index];
 
         public void Add(HotkeyRegistration registration)
         {
@@ -61,10 +100,29 @@ namespace UnityEngine.UI
             _items[Count++] = registration;
         }
 
-        public void RemoveLast()
+        public bool Remove(IHotkeyTrigger trigger, out HotkeyRegistration removedRegistration)
         {
-            Count--;
-            _items[Count] = default;
+            for (int i = 0; i < Count; i++)
+            {
+                if (!ReferenceEquals(_items[i].Trigger, trigger))
+                {
+                    continue;
+                }
+
+                removedRegistration = _items[i];
+                int lastIndex = Count - 1;
+                for (int moveIndex = i; moveIndex < lastIndex; moveIndex++)
+                {
+                    _items[moveIndex] = _items[moveIndex + 1];
+                }
+
+                Count--;
+                _items[Count] = default;
+                return true;
+            }
+
+            removedRegistration = default;
+            return false;
         }
 
         public void Clear()
@@ -78,178 +136,28 @@ namespace UnityEngine.UI
         }
     }
 
-    internal sealed class ReferenceMap<TKey, TValue> where TKey : class
-    {
-        private int[] _buckets = Array.Empty<int>();
-        private int[] _next = Array.Empty<int>();
-        private TKey[] _keys = Array.Empty<TKey>();
-        private TValue[] _values = Array.Empty<TValue>();
-        private int _slotCount;
-
-        public int Count { get; private set; }
-        public int SlotCount => _slotCount;
-
-        public bool TryGetValue(TKey key, out TValue value)
-        {
-            if (key != null && _buckets.Length > 0)
-            {
-                int bucket = GetBucket(key, _buckets.Length);
-                for (int i = _buckets[bucket] - 1; i >= 0; i = _next[i])
-                {
-                    if (ReferenceEquals(_keys[i], key))
-                    {
-                        value = _values[i];
-                        return true;
-                    }
-                }
-            }
-
-            value = default;
-            return false;
-        }
-
-        public void Set(TKey key, TValue value)
-        {
-            if (key == null)
-            {
-                return;
-            }
-
-            EnsureCapacity(_slotCount + 1);
-            int bucket = GetBucket(key, _buckets.Length);
-            for (int i = _buckets[bucket] - 1; i >= 0; i = _next[i])
-            {
-                if (ReferenceEquals(_keys[i], key))
-                {
-                    _values[i] = value;
-                    return;
-                }
-            }
-
-            int index = _slotCount++;
-            _keys[index] = key;
-            _values[index] = value;
-            _next[index] = _buckets[bucket] - 1;
-            _buckets[bucket] = index + 1;
-            Count++;
-        }
-
-        public bool Remove(TKey key)
-        {
-            if (key == null || _buckets.Length == 0)
-            {
-                return false;
-            }
-
-            int bucket = GetBucket(key, _buckets.Length);
-            int previous = -1;
-            for (int i = _buckets[bucket] - 1; i >= 0; i = _next[i])
-            {
-                if (!ReferenceEquals(_keys[i], key))
-                {
-                    previous = i;
-                    continue;
-                }
-
-                if (previous < 0)
-                {
-                    _buckets[bucket] = _next[i] + 1;
-                }
-                else
-                {
-                    _next[previous] = _next[i];
-                }
-
-                _keys[i] = null;
-                _values[i] = default;
-                _next[i] = -1;
-                Count--;
-                return true;
-            }
-
-            return false;
-        }
-
-        public void Clear()
-        {
-            Array.Clear(_buckets, 0, _buckets.Length);
-            Array.Clear(_next, 0, _next.Length);
-            Array.Clear(_keys, 0, _keys.Length);
-            Array.Clear(_values, 0, _values.Length);
-            _slotCount = 0;
-            Count = 0;
-        }
-
-        public bool TryGetValueAtSlot(int slot, out TValue value)
-        {
-            if ((uint)slot < (uint)_slotCount && _keys[slot] != null)
-            {
-                value = _values[slot];
-                return true;
-            }
-
-            value = default;
-            return false;
-        }
-
-        private void EnsureCapacity(int capacity)
-        {
-            if (_buckets.Length >= capacity)
-            {
-                return;
-            }
-
-            int newLength = _buckets.Length == 0 ? 8 : _buckets.Length << 1;
-            while (newLength < capacity)
-            {
-                newLength <<= 1;
-            }
-
-            TKey[] oldKeys = _keys;
-            TValue[] oldValues = _values;
-            int oldSlotCount = _slotCount;
-
-            _buckets = new int[newLength];
-            _next = new int[newLength];
-            _keys = new TKey[newLength];
-            _values = new TValue[newLength];
-            _slotCount = 0;
-            Count = 0;
-
-            for (int i = 0; i < oldSlotCount; i++)
-            {
-                if (oldKeys[i] != null)
-                {
-                    Set(oldKeys[i], oldValues[i]);
-                }
-            }
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static int GetBucket(TKey key, int length)
-        {
-            return (RuntimeHelpers.GetHashCode(key) & int.MaxValue) & (length - 1);
-        }
-    }
-
     internal sealed class HotkeyScope
     {
+        private Canvas _canvas;
+
         public HotkeyScope(UIHolderObjectBase holder)
         {
             Holder = holder;
-            HierarchyDepth = GetHierarchyDepth(holder.transform);
-            ParentHolder = UXHotkeyRegisterManager.FindParentHolder(holder);
+            ListIndex = -1;
+            RegistrationsByAction = new Dictionary<InputAction, HotkeyActionRegistrations>(ReferenceEqualityComparer<InputAction>.Instance);
+            RefreshHierarchy();
         }
 
         public readonly UIHolderObjectBase Holder;
-        public readonly UIHolderObjectBase ParentHolder;
-        public readonly int HierarchyDepth;
-        public readonly ReferenceMap<InputAction, HotkeyActionRegistrations> RegistrationsByAction = new();
+        public readonly Dictionary<InputAction, HotkeyActionRegistrations> RegistrationsByAction;
 
+        public UIHolderObjectBase ParentHolder { get; private set; }
+        public int HierarchyDepth { get; private set; }
+        public int ListIndex { get; set; }
         public bool LifecycleActive;
         public ulong ActivationSerial;
 
-        private Canvas _canvas;
+        public bool IsEmpty => RegistrationsByAction.Count == 0;
 
         public Canvas Canvas
         {
@@ -262,6 +170,19 @@ namespace UnityEngine.UI
 
                 return _canvas;
             }
+        }
+
+        public void RefreshHierarchy()
+        {
+            if (Holder == null)
+            {
+                ParentHolder = null;
+                HierarchyDepth = 0;
+                return;
+            }
+
+            HierarchyDepth = GetHierarchyDepth(Holder.transform);
+            ParentHolder = UXHotkeyRegisterManager.FindParentHolder(Holder);
         }
 
         public void OnBeforeShowHandler()
@@ -298,10 +219,12 @@ namespace UnityEngine.UI
         public InputAction Action;
         public int StartedCount;
         public int PerformedCount;
+        public int CanceledCount;
+        public int ManagedOwnershipCount;
         public bool WasEnabledBeforeHotkey;
         public bool EnabledByHotkeySystem;
 
-        public int TotalCount => StartedCount + PerformedCount;
+        public int TotalCount => StartedCount + PerformedCount + CanceledCount;
     }
 
     internal readonly struct TriggerRegistration
@@ -309,32 +232,69 @@ namespace UnityEngine.UI
         public readonly InputAction Action;
         public readonly UIHolderObjectBase Holder;
         public readonly EHotkeyPressType PressType;
-        public readonly int Index;
+        public readonly EHotkeyActionOwnershipMode OwnershipMode;
         public readonly IHotkeyTrigger Trigger;
 
-        public TriggerRegistration(InputAction action, UIHolderObjectBase holder, EHotkeyPressType pressType, int index, IHotkeyTrigger trigger)
+        public TriggerRegistration(
+            InputAction action,
+            UIHolderObjectBase holder,
+            EHotkeyPressType pressType,
+            EHotkeyActionOwnershipMode ownershipMode,
+            IHotkeyTrigger trigger)
         {
             Action = action;
             Holder = holder;
             PressType = pressType;
-            Index = index;
+            OwnershipMode = ownershipMode;
             Trigger = trigger;
         }
     }
 
+    internal readonly struct HotkeyPressTarget
+    {
+        public readonly UIHolderObjectBase FocusHolder;
+        public readonly HotkeyScope LeafScope;
+
+        public HotkeyPressTarget(UIHolderObjectBase focusHolder, HotkeyScope leafScope)
+        {
+            FocusHolder = focusHolder;
+            LeafScope = leafScope;
+        }
+
+        public bool HasFocus => FocusHolder != null;
+    }
+
     internal static class UXHotkeyRegisterManager
     {
-        private static readonly ReferenceMap<InputAction, ActionRegistrationBucket> _actions = new();
-        private static readonly ReferenceMap<IHotkeyTrigger, TriggerRegistration> _triggerMap = new();
-        private static readonly ReferenceMap<UIHolderObjectBase, HotkeyScope> _scopes = new();
-        private static readonly ReferenceMap<UIHolderObjectBase, UIHolderObjectBase> _ancestorHolders = new();
+        private static readonly Dictionary<InputAction, ActionRegistrationBucket> _actions =
+            new(ReferenceEqualityComparer<InputAction>.Instance);
+
+        private static readonly Dictionary<InputAction, HotkeyPressTarget> _pressTargets =
+            new(ReferenceEqualityComparer<InputAction>.Instance);
+
+        private static readonly Dictionary<IHotkeyTrigger, TriggerRegistration> _triggerMap =
+            new(ReferenceEqualityComparer<IHotkeyTrigger>.Instance);
+
+        private static readonly Dictionary<UIHolderObjectBase, HotkeyScope> _scopes =
+            new(ReferenceEqualityComparer<UIHolderObjectBase>.Instance);
+
+        private static readonly List<HotkeyScope> _scopeList = new(32);
+
+        private static readonly HashSet<UIHolderObjectBase> _ancestorHolders =
+            new(ReferenceEqualityComparer<UIHolderObjectBase>.Instance);
+
         private static IHotkeyTrigger[] _destroyScopeTriggers = Array.Empty<IHotkeyTrigger>();
         private static int _destroyScopeTriggerCount;
+        private static InputAction[] _pressTargetRemovalBuffer = Array.Empty<InputAction>();
+        private static int _pressTargetRemovalCount;
+
         private static readonly Action<InputAction.CallbackContext> _startedHandler = OnActionStarted;
         private static readonly Action<InputAction.CallbackContext> _performedHandler = OnActionPerformed;
+        private static readonly Action<InputAction.CallbackContext> _canceledHandler = OnActionCanceled;
+        private static readonly Predicate<UIHolderObjectBase> _hotkeyFocusPredicate = IsHotkeyFocusHolder;
 
-        private static ulong _serialCounter;
-        private static HotkeyScope _topLeafScope;
+        private static ulong _activationSerial;
+        private static bool _scopeDirty = true;
         private static bool _isDestroyingScope;
 
 #if UNITY_EDITOR
@@ -343,28 +303,30 @@ namespace UnityEngine.UI
         {
             IHotkeyTrigger[] triggers = new IHotkeyTrigger[_triggerMap.Count];
             int index = 0;
-            for (int i = 0; i < _triggerMap.SlotCount; i++)
+            foreach (var pair in _triggerMap)
             {
-                if (_triggerMap.TryGetValueAtSlot(i, out var registration))
-                {
-                    triggers[index++] = registration.Trigger;
-                }
+                triggers[index++] = pair.Key;
             }
 
-            for (int i = 0; i < triggers.Length; i++)
+            for (int i = 0; i < index; i++)
             {
                 UnregisterHotkey(triggers[i]);
             }
 
             _actions.Clear();
+            _pressTargets.Clear();
             _triggerMap.Clear();
             _scopes.Clear();
+            _scopeList.Clear();
             _ancestorHolders.Clear();
+            Array.Clear(_destroyScopeTriggers, 0, _destroyScopeTriggerCount);
             _destroyScopeTriggerCount = 0;
-            _serialCounter = 0;
-            _topLeafScope = null;
+            Array.Clear(_pressTargetRemovalBuffer, 0, _pressTargetRemovalCount);
+            _pressTargetRemovalCount = 0;
+            _activationSerial = 0;
             _isDestroyingScope = false;
-            RebuildTopLeafScopeImmediate();
+            MarkScopeDirty();
+            RebuildScopeCacheImmediate();
         }
 #endif
 
@@ -382,16 +344,29 @@ namespace UnityEngine.UI
             ActionRegistrationBucket bucket = GetOrCreateBucket(inputAction);
 
             HotkeyScope scope = GetOrCreateScope(holder);
-            int index = AddScopeRegistration(scope, inputAction, trigger, pressType);
-            AdjustBucketSubscription(bucket, pressType, true);
+            EHotkeyActionOwnershipMode ownershipMode = trigger.HotkeyActionOwnershipMode;
+#if UNITY_EDITOR
+            WarnIfObservingDisabledAction(trigger, inputAction, ownershipMode);
+#endif
+            HotkeyRegistration registration = new(
+                trigger,
+                trigger.HotkeyConsumesInput);
+
+            if (!TryAddScopeRegistration(scope, inputAction, pressType, registration))
+            {
+                ReleaseScopeIfEmpty(scope);
+                return;
+            }
+
+            AdjustBucketSubscription(bucket, pressType, ownershipMode, true);
 
             if (scope.LifecycleActive)
             {
-                scope.ActivationSerial = ++_serialCounter;
-                RebuildTopLeafScopeImmediate();
+                scope.ActivationSerial = ++_activationSerial;
             }
 
-            _triggerMap.Set(trigger, new TriggerRegistration(inputAction, holder, pressType, index, trigger));
+            _triggerMap[trigger] = new TriggerRegistration(inputAction, holder, pressType, ownershipMode, trigger);
+            MarkScopeDirty();
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -402,29 +377,33 @@ namespace UnityEngine.UI
                 return;
             }
 
-            if (!_scopes.TryGetValue(triggerRegistration.Holder, out var scope))
+            HotkeyScope scope = null;
+            bool removedFromScope = false;
+            if (_scopes.TryGetValue(triggerRegistration.Holder, out scope))
             {
+                removedFromScope = RemoveScopeRegistration(scope, triggerRegistration.Action, triggerRegistration.PressType, trigger);
+            }
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
+            else
+            {
                 Debug.LogError("Hotkey registry is inconsistent: scope missing during unregister.");
-#endif
-                return;
             }
 
-            if (!RemoveScopeRegistration(scope, triggerRegistration.Action, triggerRegistration.PressType, triggerRegistration.Index, trigger))
+            if (!removedFromScope)
             {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
                 Debug.LogError("Hotkey registry is inconsistent: trigger slot missing during unregister.");
-#endif
-                return;
             }
+#endif
 
             _triggerMap.Remove(trigger);
+
             if (_actions.TryGetValue(triggerRegistration.Action, out var bucket))
             {
-                RemoveActionRegistration(bucket, triggerRegistration.PressType, triggerRegistration.Action);
+                RemoveActionRegistration(bucket, triggerRegistration.PressType, triggerRegistration.Action, triggerRegistration.OwnershipMode);
             }
 
             ReleaseScopeIfEmpty(scope);
+            MarkScopeDirty();
         }
 
         internal static void ActivateScope(UIHolderObjectBase holder)
@@ -432,8 +411,8 @@ namespace UnityEngine.UI
             if (_scopes.TryGetValue(holder, out var scope))
             {
                 scope.LifecycleActive = true;
-                scope.ActivationSerial = ++_serialCounter;
-                RebuildTopLeafScopeImmediate();
+                scope.ActivationSerial = ++_activationSerial;
+                MarkScopeDirty();
             }
         }
 
@@ -442,7 +421,8 @@ namespace UnityEngine.UI
             if (_scopes.TryGetValue(holder, out var scope))
             {
                 scope.LifecycleActive = false;
-                RebuildTopLeafScopeImmediate();
+                RemovePressTargetsForHolder(holder);
+                MarkScopeDirty();
             }
         }
 
@@ -454,25 +434,34 @@ namespace UnityEngine.UI
             }
 
             _isDestroyingScope = true;
-            _destroyScopeTriggerCount = 0;
-            for (int i = 0; i < scope.RegistrationsByAction.SlotCount; i++)
+            try
             {
-                if (scope.RegistrationsByAction.TryGetValueAtSlot(i, out var actionRegistrations))
+                RemovePressTargetsForHolder(holder);
+                _destroyScopeTriggerCount = 0;
+                foreach (var pair in scope.RegistrationsByAction)
                 {
-                    CollectTriggers(actionRegistrations.StartedRegistrations);
-                    CollectTriggers(actionRegistrations.PerformedRegistrations);
+                    CollectTriggers(pair.Value.StartedRegistrations);
+                    CollectTriggers(pair.Value.PerformedRegistrations);
+                    CollectTriggers(pair.Value.CanceledRegistrations);
+                }
+
+                for (int i = 0; i < _destroyScopeTriggerCount; i++)
+                {
+                    UnregisterHotkey(_destroyScopeTriggers[i]);
+                }
+
+                Array.Clear(_destroyScopeTriggers, 0, _destroyScopeTriggerCount);
+                _destroyScopeTriggerCount = 0;
+
+                if (_scopes.TryGetValue(holder, out var attachedScope) && ReferenceEquals(attachedScope, scope))
+                {
+                    DetachScope(scope);
                 }
             }
-
-            for (int i = 0; i < _destroyScopeTriggerCount; i++)
+            finally
             {
-                UnregisterHotkey(_destroyScopeTriggers[i]);
+                _isDestroyingScope = false;
             }
-
-            Array.Clear(_destroyScopeTriggers, 0, _destroyScopeTriggerCount);
-            _destroyScopeTriggerCount = 0;
-            DetachScope(scope);
-            _isDestroyingScope = false;
         }
 
         internal static UIHolderObjectBase FindParentHolder(UIHolderObjectBase holder)
@@ -499,13 +488,19 @@ namespace UnityEngine.UI
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void OnActionStarted(InputAction.CallbackContext context)
         {
-            Dispatch(context.action, EHotkeyPressType.Started);
+            Dispatch(context, EHotkeyPressType.Started);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void OnActionPerformed(InputAction.CallbackContext context)
         {
-            Dispatch(context.action, EHotkeyPressType.Performed);
+            Dispatch(context, EHotkeyPressType.Performed);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void OnActionCanceled(InputAction.CallbackContext context)
+        {
+            Dispatch(context, EHotkeyPressType.Canceled);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -517,7 +512,7 @@ namespace UnityEngine.UI
             }
 
             bucket = new ActionRegistrationBucket { Action = inputAction };
-            _actions.Set(inputAction, bucket);
+            _actions[inputAction] = bucket;
             return bucket;
         }
 
@@ -530,7 +525,8 @@ namespace UnityEngine.UI
 
             scope = new HotkeyScope(holder)
             {
-                ActivationSerial = ++_serialCounter
+                ActivationSerial = ++_activationSerial,
+                LifecycleActive = false
             };
             scope.LifecycleActive = IsScopeVisible(scope);
 
@@ -538,48 +534,92 @@ namespace UnityEngine.UI
             holder.OnWindowBeforeClosedEvent += scope.OnBeforeClosedHandler;
             holder.OnWindowDestroyEvent += scope.OnDestroyHandler;
 
-            _scopes.Set(holder, scope);
-            RebuildTopLeafScopeImmediate();
+            scope.ListIndex = _scopeList.Count;
+            _scopeList.Add(scope);
+            _scopes[holder] = scope;
+            MarkScopeDirty();
             return scope;
         }
 
         private static void DetachScope(HotkeyScope scope)
         {
-            if (scope == null || scope.Holder == null)
+            if (scope == null)
             {
                 return;
             }
 
-            scope.Holder.OnWindowBeforeShowEvent -= scope.OnBeforeShowHandler;
-            scope.Holder.OnWindowBeforeClosedEvent -= scope.OnBeforeClosedHandler;
-            scope.Holder.OnWindowDestroyEvent -= scope.OnDestroyHandler;
-            _scopes.Remove(scope.Holder);
-            RebuildTopLeafScopeImmediate();
+            UIHolderObjectBase holder = scope.Holder;
+            if (!ReferenceEquals(holder, null))
+            {
+                holder.OnWindowBeforeShowEvent -= scope.OnBeforeShowHandler;
+                holder.OnWindowBeforeClosedEvent -= scope.OnBeforeClosedHandler;
+                holder.OnWindowDestroyEvent -= scope.OnDestroyHandler;
+                _scopes.Remove(holder);
+            }
+
+            RemoveScopeFromList(scope);
+            MarkScopeDirty();
+        }
+
+        private static void RemoveScopeFromList(HotkeyScope scope)
+        {
+            int index = scope.ListIndex;
+            if ((uint)index >= (uint)_scopeList.Count || !ReferenceEquals(_scopeList[index], scope))
+            {
+                index = _scopeList.IndexOf(scope);
+                if (index < 0)
+                {
+                    scope.ListIndex = -1;
+                    return;
+                }
+            }
+
+            int lastIndex = _scopeList.Count - 1;
+            HotkeyScope lastScope = _scopeList[lastIndex];
+            _scopeList.RemoveAt(lastIndex);
+            if (index != lastIndex)
+            {
+                _scopeList[index] = lastScope;
+                lastScope.ListIndex = index;
+            }
+
+            scope.ListIndex = -1;
         }
 
         private static void ReleaseScopeIfEmpty(HotkeyScope scope)
         {
-            if (scope != null && scope.RegistrationsByAction.Count == 0)
+            if (scope != null && scope.IsEmpty)
             {
                 DetachScope(scope);
             }
         }
 
-        private static int AddScopeRegistration(HotkeyScope scope, InputAction action, IHotkeyTrigger trigger, EHotkeyPressType pressType)
+        private static bool TryAddScopeRegistration(
+            HotkeyScope scope,
+            InputAction action,
+            EHotkeyPressType pressType,
+            HotkeyRegistration registration)
         {
             if (!scope.RegistrationsByAction.TryGetValue(action, out var actionRegistrations))
             {
                 actionRegistrations = new HotkeyActionRegistrations();
-                scope.RegistrationsByAction.Set(action, actionRegistrations);
+                scope.RegistrationsByAction[action] = actionRegistrations;
             }
 
             HotkeyRegistrationList registrations = actionRegistrations.GetRegistrations(pressType);
-            int index = registrations.Count;
-            registrations.Add(new HotkeyRegistration(trigger));
-            return index;
+            if (registrations.Count > 0)
+            {
+#if UNITY_EDITOR
+                WarnRegistrationConflict(scope, action, pressType, registrations[0].Trigger, registration.Trigger);
+#endif
+                return false;
+            }
+
+            registrations.Add(registration);
+            return true;
         }
 
-        private static bool RemoveScopeRegistration(HotkeyScope scope, InputAction action, EHotkeyPressType pressType, int index, IHotkeyTrigger expectedTrigger)
+        private static bool RemoveScopeRegistration(HotkeyScope scope, InputAction action, EHotkeyPressType pressType, IHotkeyTrigger trigger)
         {
             if (!scope.RegistrationsByAction.TryGetValue(action, out var actionRegistrations))
             {
@@ -587,26 +627,10 @@ namespace UnityEngine.UI
             }
 
             HotkeyRegistrationList registrations = actionRegistrations.GetRegistrations(pressType);
-            if ((uint)index >= (uint)registrations.Count)
+            if (!registrations.Remove(trigger, out var removedRegistration))
             {
                 return false;
             }
-
-            int lastIndex = registrations.Count - 1;
-            HotkeyRegistration removedRegistration = registrations[index];
-            if (!ReferenceEquals(removedRegistration.Trigger, expectedTrigger))
-            {
-                return false;
-            }
-
-            if (index != lastIndex)
-            {
-                HotkeyRegistration movedRegistration = registrations[lastIndex];
-                registrations[index] = movedRegistration;
-                UpdateTriggerIndex(movedRegistration.Trigger, index);
-            }
-
-            registrations.RemoveLast();
 
             if (actionRegistrations.IsEmpty)
             {
@@ -616,26 +640,24 @@ namespace UnityEngine.UI
             return true;
         }
 
-        private static void UpdateTriggerIndex(IHotkeyTrigger trigger, int index)
+        private static void RemoveActionRegistration(
+            ActionRegistrationBucket bucket,
+            EHotkeyPressType pressType,
+            InputAction action,
+            EHotkeyActionOwnershipMode ownershipMode)
         {
-            if (trigger == null || !_triggerMap.TryGetValue(trigger, out var registration))
-            {
-                return;
-            }
-
-            _triggerMap.Set(trigger, new TriggerRegistration(registration.Action, registration.Holder, registration.PressType, index, trigger));
-        }
-
-        private static void RemoveActionRegistration(ActionRegistrationBucket bucket, EHotkeyPressType pressType, InputAction action)
-        {
-            AdjustBucketSubscription(bucket, pressType, false);
+            AdjustBucketSubscription(bucket, pressType, ownershipMode, false);
             if (bucket.TotalCount == 0)
             {
                 _actions.Remove(action);
             }
         }
 
-        private static void AdjustBucketSubscription(ActionRegistrationBucket bucket, EHotkeyPressType pressType, bool add)
+        private static void AdjustBucketSubscription(
+            ActionRegistrationBucket bucket,
+            EHotkeyPressType pressType,
+            EHotkeyActionOwnershipMode ownershipMode,
+            bool add)
         {
             InputAction inputAction = bucket.Action;
             if (inputAction == null)
@@ -643,10 +665,11 @@ namespace UnityEngine.UI
                 return;
             }
 
-            int countBefore = bucket.TotalCount;
-            if (add && countBefore == 0)
+            int previousTotalCount = bucket.TotalCount;
+            if (add && previousTotalCount == 0)
             {
-                bucket.WasEnabledBeforeHotkey = inputAction.enabled;
+                inputAction.started += _startedHandler;
+                inputAction.canceled += _canceledHandler;
             }
 
             switch (pressType)
@@ -654,24 +677,27 @@ namespace UnityEngine.UI
                 case EHotkeyPressType.Started:
                     if (add)
                     {
-                        if (bucket.StartedCount == 0)
-                        {
-                            inputAction.started += _startedHandler;
-                        }
-
                         bucket.StartedCount++;
                     }
                     else if (bucket.StartedCount > 0)
                     {
                         bucket.StartedCount--;
-                        if (bucket.StartedCount == 0)
-                        {
-                            inputAction.started -= _startedHandler;
-                        }
+                    }
+
+                    break;
+                case EHotkeyPressType.Canceled:
+                    if (add)
+                    {
+                        bucket.CanceledCount++;
+                    }
+                    else if (bucket.CanceledCount > 0)
+                    {
+                        bucket.CanceledCount--;
                     }
 
                     break;
                 case EHotkeyPressType.Performed:
+                default:
                     if (add)
                     {
                         if (bucket.PerformedCount == 0)
@@ -693,40 +719,207 @@ namespace UnityEngine.UI
                     break;
             }
 
-            if (add && countBefore == 0 && !bucket.WasEnabledBeforeHotkey)
+            if (!add && previousTotalCount > 0 && bucket.TotalCount == 0)
             {
-                inputAction.Enable();
-                bucket.EnabledByHotkeySystem = true;
+                inputAction.started -= _startedHandler;
+                inputAction.canceled -= _canceledHandler;
             }
-            else if (!add && bucket.TotalCount == 0 && bucket.EnabledByHotkeySystem && !bucket.WasEnabledBeforeHotkey)
+
+            if (add)
             {
-                inputAction.Disable();
-                bucket.EnabledByHotkeySystem = false;
+                AddManagedOwnership(bucket, ownershipMode);
+            }
+            else
+            {
+                RemoveManagedOwnership(bucket, ownershipMode);
             }
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void Dispatch(InputAction action, EHotkeyPressType pressType)
+        private static void AddManagedOwnership(ActionRegistrationBucket bucket, EHotkeyActionOwnershipMode ownershipMode)
         {
-            RebuildTopLeafScopeImmediate();
-            HotkeyScope leafScope = _topLeafScope;
-            if (leafScope == null)
+            if (ownershipMode != EHotkeyActionOwnershipMode.EnableWhileRegistered || bucket.Action == null)
             {
                 return;
             }
 
-            TryDispatchToScopeChain(leafScope, action, pressType);
+            if (bucket.ManagedOwnershipCount == 0)
+            {
+                bucket.WasEnabledBeforeHotkey = bucket.Action.enabled;
+                bucket.EnabledByHotkeySystem = false;
+                if (!bucket.WasEnabledBeforeHotkey)
+                {
+                    bucket.Action.Enable();
+                    bucket.EnabledByHotkeySystem = true;
+                }
+            }
+
+            bucket.ManagedOwnershipCount++;
         }
 
-        private static bool TryDispatchToScopeChain(HotkeyScope leafScope, InputAction action, EHotkeyPressType pressType)
+        private static void RemoveManagedOwnership(ActionRegistrationBucket bucket, EHotkeyActionOwnershipMode ownershipMode)
+        {
+            if (ownershipMode != EHotkeyActionOwnershipMode.EnableWhileRegistered || bucket.Action == null || bucket.ManagedOwnershipCount <= 0)
+            {
+                return;
+            }
+
+            bucket.ManagedOwnershipCount--;
+            if (bucket.ManagedOwnershipCount != 0)
+            {
+                return;
+            }
+
+            if (bucket.EnabledByHotkeySystem && !bucket.WasEnabledBeforeHotkey)
+            {
+                bucket.Action.Disable();
+            }
+
+            bucket.EnabledByHotkeySystem = false;
+            bucket.WasEnabledBeforeHotkey = false;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void Dispatch(InputAction.CallbackContext context, EHotkeyPressType pressType)
+        {
+            InputAction action = context.action;
+            if (action == null)
+            {
+                return;
+            }
+
+            HotkeyPressTarget target;
+            if (pressType == EHotkeyPressType.Started)
+            {
+                target = ResolveCurrentPressTarget();
+                _pressTargets[action] = target;
+            }
+            else if (!_pressTargets.TryGetValue(action, out target))
+            {
+                if (pressType == EHotkeyPressType.Canceled)
+                {
+                    return;
+                }
+
+                target = ResolveCurrentPressTarget();
+            }
+
+            TryDispatchToLockedTarget(target, action, pressType);
+
+            if (pressType == EHotkeyPressType.Canceled)
+            {
+                _pressTargets.Remove(action);
+            }
+        }
+
+        private static HotkeyPressTarget ResolveCurrentPressTarget()
+        {
+            if (!TryGetCurrentHotkeyFocusHolder(out UIHolderObjectBase focusHolder))
+            {
+                return default;
+            }
+
+            EnsureScopeCacheCurrent();
+            HotkeyScope leafScope = FindTopScopeInsideHolder(focusHolder);
+            return new HotkeyPressTarget(focusHolder, leafScope);
+        }
+
+        private static bool TryGetCurrentHotkeyFocusHolder(out UIHolderObjectBase holder)
+        {
+            holder = null;
+            if (!AppServices.TryGet(out IUIService uiService))
+            {
+                return false;
+            }
+
+            return uiService.TryGetTopVisibleHolder(_hotkeyFocusPredicate, out holder);
+        }
+
+        private static bool IsHotkeyFocusHolder(UIHolderObjectBase holder)
+        {
+            return holder != null && !holder.TryGetComponent<HotkeyPassThrough>(out _);
+        }
+
+        private static bool TryDispatchToLockedTarget(
+            HotkeyPressTarget target,
+            InputAction action,
+            EHotkeyPressType pressType)
+        {
+            if (!target.HasFocus || !IsHolderAvailable(target.FocusHolder))
+            {
+                return false;
+            }
+
+            HotkeyScope leafScope = target.LeafScope;
+            if (leafScope == null)
+            {
+                return false;
+            }
+
+            if (!IsDescendantOrSelf(leafScope.Holder, target.FocusHolder))
+            {
+                return false;
+            }
+
+            return TryDispatchToScopeChain(leafScope, target.FocusHolder, action, pressType);
+        }
+
+        private static void RemovePressTargetsForHolder(UIHolderObjectBase holder)
+        {
+            if (holder == null || _pressTargets.Count == 0)
+            {
+                return;
+            }
+
+            _pressTargetRemovalCount = 0;
+            foreach (var pair in _pressTargets)
+            {
+                HotkeyPressTarget target = pair.Value;
+                if (ReferenceEquals(target.FocusHolder, holder)
+                    || IsDescendantOrSelf(target.FocusHolder, holder)
+                    || target.LeafScope != null && IsDescendantOrSelf(target.LeafScope.Holder, holder))
+                {
+                    AddPressTargetRemoval(pair.Key);
+                }
+            }
+
+            for (int i = 0; i < _pressTargetRemovalCount; i++)
+            {
+                _pressTargets.Remove(_pressTargetRemovalBuffer[i]);
+                _pressTargetRemovalBuffer[i] = null;
+            }
+
+            _pressTargetRemovalCount = 0;
+        }
+
+        private static void AddPressTargetRemoval(InputAction action)
+        {
+            if (_pressTargetRemovalCount == _pressTargetRemovalBuffer.Length)
+            {
+                int newLength = _pressTargetRemovalBuffer.Length == 0 ? 4 : _pressTargetRemovalBuffer.Length << 1;
+                Array.Resize(ref _pressTargetRemovalBuffer, newLength);
+            }
+
+            _pressTargetRemovalBuffer[_pressTargetRemovalCount++] = action;
+        }
+
+        private static bool TryDispatchToScopeChain(
+            HotkeyScope leafScope,
+            UIHolderObjectBase stopHolder,
+            InputAction action,
+            EHotkeyPressType pressType)
         {
             HotkeyScope current = leafScope;
             while (current != null)
             {
-                if (TryGetLatestRegistration(current, action, pressType, out var registration))
+                if (IsScopeActive(current)
+                    && TryDispatchRegistrations(current, action, pressType))
                 {
-                    registration.Trigger?.HotkeyActionTrigger();
                     return true;
+                }
+
+                if (ReferenceEquals(current.Holder, stopHolder))
+                {
+                    return false;
                 }
 
                 UIHolderObjectBase parentHolder = current.ParentHolder;
@@ -738,39 +931,89 @@ namespace UnityEngine.UI
             return false;
         }
 
-        private static bool TryGetLatestRegistration(HotkeyScope scope, InputAction action, EHotkeyPressType pressType, out HotkeyRegistration registration)
+        private static bool TryDispatchRegistrations(
+            HotkeyScope scope,
+            InputAction action,
+            EHotkeyPressType pressType)
         {
-            if (scope.RegistrationsByAction.TryGetValue(action, out var actionRegistrations))
+            if (!scope.RegistrationsByAction.TryGetValue(action, out var actionRegistrations))
             {
-                HotkeyRegistrationList registrations = actionRegistrations.GetRegistrations(pressType);
-                if (registrations.Count > 0)
-                {
-                    registration = registrations[registrations.Count - 1];
-                    return registration.Trigger != null;
-                }
+                return false;
             }
 
-            registration = default;
-            return false;
-        }
-
-        private static void RebuildTopLeafScopeImmediate()
-        {
-            _topLeafScope = RebuildTopLeafScope();
-        }
-
-        private static HotkeyScope RebuildTopLeafScope()
-        {
-            _ancestorHolders.Clear();
-
-            for (int i = 0; i < _scopes.SlotCount; i++)
+            HotkeyRegistrationList registrations = actionRegistrations.GetRegistrations(pressType);
+            for (int i = 0; i < registrations.Count; i++)
             {
-                if (!_scopes.TryGetValueAtSlot(i, out var scope))
+                HotkeyRegistration registration = registrations[i];
+                if (!IsTriggerAvailable(registration.Trigger))
                 {
                     continue;
                 }
 
-                if (!IsScopeActive(scope))
+                registration.Trigger.HotkeyActionTrigger();
+                if (registration.ConsumesInput)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsTriggerAvailable(IHotkeyTrigger trigger)
+        {
+            if (trigger == null)
+            {
+                return false;
+            }
+
+            if (trigger is Component component)
+            {
+                if (component == null || !component.gameObject.activeInHierarchy)
+                {
+                    return false;
+                }
+
+                if (component is Behaviour behaviour && !behaviour.isActiveAndEnabled)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static void EnsureScopeCacheCurrent()
+        {
+            if (_scopeDirty)
+            {
+                RebuildScopeCacheImmediate();
+            }
+        }
+
+        private static void RebuildScopeCacheImmediate()
+        {
+            for (int i = 0; i < _scopeList.Count; i++)
+            {
+                _scopeList[i].RefreshHierarchy();
+            }
+
+            _scopeDirty = false;
+        }
+
+        private static HotkeyScope FindTopScopeInsideHolder(UIHolderObjectBase focusHolder)
+        {
+            if (!IsHolderAvailable(focusHolder))
+            {
+                return null;
+            }
+
+            _ancestorHolders.Clear();
+
+            for (int i = 0; i < _scopeList.Count; i++)
+            {
+                HotkeyScope scope = _scopeList[i];
+                if (!IsScopeActive(scope) || !IsDescendantOrSelf(scope.Holder, focusHolder))
                 {
                     continue;
                 }
@@ -778,7 +1021,7 @@ namespace UnityEngine.UI
                 UIHolderObjectBase parentHolder = scope.ParentHolder;
                 while (parentHolder != null)
                 {
-                    _ancestorHolders.Set(parentHolder, parentHolder);
+                    _ancestorHolders.Add(parentHolder);
                     if (_scopes.TryGetValue(parentHolder, out var parentScope))
                     {
                         parentHolder = parentScope.ParentHolder;
@@ -791,15 +1034,12 @@ namespace UnityEngine.UI
             }
 
             HotkeyScope bestScope = null;
-            for (int i = 0; i < _scopes.SlotCount; i++)
+            for (int i = 0; i < _scopeList.Count; i++)
             {
-                if (!_scopes.TryGetValueAtSlot(i, out var scope))
-                {
-                    continue;
-                }
-
+                HotkeyScope scope = _scopeList[i];
                 if (IsScopeActive(scope)
-                    && !_ancestorHolders.TryGetValue(scope.Holder, out _)
+                    && IsDescendantOrSelf(scope.Holder, focusHolder)
+                    && !_ancestorHolders.Contains(scope.Holder)
                     && (bestScope == null || CompareScopePriority(scope, bestScope) < 0))
                 {
                     bestScope = scope;
@@ -807,6 +1047,43 @@ namespace UnityEngine.UI
             }
 
             return bestScope;
+        }
+
+        private static bool IsHolderAvailable(UIHolderObjectBase holder)
+        {
+            if (holder == null || !holder.IsValid())
+            {
+                return false;
+            }
+
+            return holder.gameObject.activeInHierarchy;
+        }
+
+        private static bool IsDescendantOrSelf(UIHolderObjectBase holder, UIHolderObjectBase root)
+        {
+            if (holder == null || root == null)
+            {
+                return false;
+            }
+
+            Transform current = holder.transform;
+            Transform rootTransform = root.transform;
+            while (current != null)
+            {
+                if (ReferenceEquals(current, rootTransform))
+                {
+                    return true;
+                }
+
+                current = current.parent;
+            }
+
+            return false;
+        }
+
+        private static void MarkScopeDirty()
+        {
+            _scopeDirty = true;
         }
 
         private static bool IsScopeActive(HotkeyScope scope)
@@ -882,9 +1159,53 @@ namespace UnityEngine.UI
         }
 
 #if UNITY_EDITOR
+        private static void WarnIfObservingDisabledAction(
+            IHotkeyTrigger trigger,
+            InputAction action,
+            EHotkeyActionOwnershipMode ownershipMode)
+        {
+            if (ownershipMode != EHotkeyActionOwnershipMode.ObserveOnly || action == null || action.enabled)
+            {
+                return;
+            }
+
+            string triggerName = GetTriggerGameObjectName(trigger);
+            Debug.LogWarning(
+                $"{triggerName} observes disabled hotkey action {action.name}. The hotkey system will not enable it; make sure the owning input map is enabled externally.",
+                trigger as Object);
+        }
+
+        private static void WarnRegistrationConflict(
+            HotkeyScope scope,
+            InputAction action,
+            EHotkeyPressType pressType,
+            IHotkeyTrigger registeredTrigger,
+            IHotkeyTrigger rejectedTrigger)
+        {
+            string actionName = action != null ? action.name : "<null>";
+            string holderName = scope.Holder != null ? scope.Holder.name : "<null>";
+            string registeredName = GetTriggerGameObjectName(registeredTrigger);
+            string rejectedName = GetTriggerGameObjectName(rejectedTrigger);
+            Debug.LogWarning(
+                $"{rejectedName} repeated hotkey registration for {actionName} on holder {holderName} ({pressType}). Existing registration on {registeredName} keeps working; duplicate registration is ignored.",
+                rejectedTrigger as Object);
+        }
+
+        private static string GetTriggerGameObjectName(IHotkeyTrigger trigger)
+        {
+            if (trigger is Component component && component != null)
+            {
+                return component.gameObject.name;
+            }
+
+            return trigger != null ? trigger.ToString() : "<null>";
+        }
+#endif
+
+#if UNITY_EDITOR
         public static string GetDebugInfo()
         {
-            return $"Actions: {_actions.Count}, Triggers: {_triggerMap.Count}, Scopes: {_scopes.Count}";
+            return $"Actions: {_actions.Count}, Triggers: {_triggerMap.Count}, Scopes: {_scopeList.Count}, Dirty: {_scopeDirty}";
         }
 #endif
     }
@@ -897,7 +1218,8 @@ namespace UnityEngine.UI
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void BindHotKey(this IHotkeyTrigger trigger)
         {
-            if (trigger?.HotkeyAction == null)
+            InputActionReference action = trigger?.HotkeyAction;
+            if (action == null)
             {
                 return;
             }
@@ -911,16 +1233,13 @@ namespace UnityEngine.UI
                 return;
             }
 
-            UXHotkeyRegisterManager.RegisterHotkey(trigger, holder, trigger.HotkeyAction, trigger.HotkeyPressType);
+            UXHotkeyRegisterManager.RegisterHotkey(trigger, holder, action, trigger.HotkeyPressType);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void UnBindHotKey(this IHotkeyTrigger trigger)
         {
-            if (trigger?.HotkeyAction != null)
-            {
-                UXHotkeyRegisterManager.UnregisterHotkey(trigger);
-            }
+            UXHotkeyRegisterManager.UnregisterHotkey(trigger);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
