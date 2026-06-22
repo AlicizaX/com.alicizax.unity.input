@@ -302,10 +302,7 @@ internal static class InputDefineCodeGenerator
         builder.AppendLine("private static InputActionMap FindActionMap(string mapName)");
         AppendIndent(builder, indent);
         builder.AppendLine("{");
-        AppendIndent(builder, indent + 1);
-        builder.AppendLine("InputActionAsset actions = Actions;");
-        AppendIndent(builder, indent + 1);
-        builder.AppendLine("return actions != null ? InputActionProvider.FindActionMap(mapName, false) : null;");
+        builder.AppendLine("return InputActionProvider.FindActionMap(mapName, false) : null;");
         AppendIndent(builder, indent);
         builder.AppendLine("}");
         builder.AppendLine();
