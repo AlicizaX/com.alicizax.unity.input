@@ -299,38 +299,13 @@ internal static class InputDefineCodeGenerator
     private static void AppendHelpers(StringBuilder builder, int indent)
     {
         AppendIndent(builder, indent);
-        builder.AppendLine("private static InputActionAsset Actions");
-        AppendIndent(builder, indent);
-        builder.AppendLine("{");
-        AppendIndent(builder, indent + 1);
-        builder.AppendLine("get");
-        AppendIndent(builder, indent + 1);
-        builder.AppendLine("{");
-        AppendIndent(builder, indent + 2);
-        builder.AppendLine("if (!AppServices.TryGet(out IInputActionProvider provider))");
-        AppendIndent(builder, indent + 2);
-        builder.AppendLine("{");
-        AppendIndent(builder, indent + 3);
-        builder.AppendLine("return null;");
-        AppendIndent(builder, indent + 2);
-        builder.AppendLine("}");
-        builder.AppendLine();
-        AppendIndent(builder, indent + 2);
-        builder.AppendLine("return provider.Actions;");
-        AppendIndent(builder, indent + 1);
-        builder.AppendLine("}");
-        AppendIndent(builder, indent);
-        builder.AppendLine("}");
-        builder.AppendLine();
-
-        AppendIndent(builder, indent);
         builder.AppendLine("private static InputActionMap FindActionMap(string mapName)");
         AppendIndent(builder, indent);
         builder.AppendLine("{");
         AppendIndent(builder, indent + 1);
         builder.AppendLine("InputActionAsset actions = Actions;");
         AppendIndent(builder, indent + 1);
-        builder.AppendLine("return actions != null ? actions.FindActionMap(mapName, false) : null;");
+        builder.AppendLine("return actions != null ? InputActionProvider.FindActionMap(mapName, false) : null;");
         AppendIndent(builder, indent);
         builder.AppendLine("}");
         builder.AppendLine();

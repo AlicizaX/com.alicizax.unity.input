@@ -18,6 +18,7 @@ public sealed class InputActionProvider : MonoBehaviour
 
     [Tooltip("InputActionAsset to read and enable at runtime.")] [SerializeField]
     private InputActionAsset actions;
+
     [SerializeField] private InputGlyphDatabase glyphDatabase;
 
     private void Awake()
@@ -50,6 +51,11 @@ public sealed class InputActionProvider : MonoBehaviour
 
         Log.Error("[InputActionProvider] Could not find action '{0}'. Use full action path 'MapName/ActionName'.", actionName);
         return null;
+    }
+
+    public static InputActionMap FindActionMap(string mapName, bool throwIfNotFound = false)
+    {
+        return _actions.FindActionMap(mapName, throwIfNotFound);
     }
 
     private static void Initialize(InputActionProvider owner, InputActionAsset actions, InputGlyphDatabase glyphDatabase)
