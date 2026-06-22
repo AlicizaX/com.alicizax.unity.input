@@ -293,7 +293,7 @@ public enum HapticPreset
 /// <summary>
 /// 描述通过左右马达曲线驱动的自定义震动模式。
 /// </summary>
-[CreateAssetMenu(fileName = "NewHapticPattern", menuName = "Input/Haptic Pattern")]
+[CreateAssetMenu(fileName = "NewHapticPattern", menuName = "AlicizaX/Input/Haptic Pattern")]
 public sealed class HapticPattern : ScriptableObject
 {
     /// <summary>

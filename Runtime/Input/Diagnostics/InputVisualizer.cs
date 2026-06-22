@@ -17,6 +17,11 @@ public sealed class InputVisualizer : MonoBehaviour
     [SerializeField] private bool logInputActions = true;
     [SerializeField] private bool logDeviceActivity = true;
     [SerializeField] private bool logContextChanges = true;
+    [SerializeField] private bool logPointerMovementActions;
+    [SerializeField] private bool logRepeatedDeviceActivity;
+    [SerializeField] private float repeatedDeviceActivityInterval = 0.5f;
+    [SerializeField] private bool logReaderReads = true;
+    [SerializeField] private bool logReaderContinuousReads;
 
     [Header("Display")]
     [SerializeField] private bool showOnScreen = true;
@@ -29,6 +34,8 @@ public sealed class InputVisualizer : MonoBehaviour
     [SerializeField] private int maxHistoryEntries = 12;
     [SerializeField] private float entryLifetime = 2.5f;
     [SerializeField] private bool showTimestamps;
+    [SerializeField] private bool mergeDuplicateEntries = true;
+    [SerializeField] private float duplicateMergeWindow = 0.05f;
 
     [Header("Style")]
     [SerializeField] private Color backgroundColor = new Color(0f, 0f, 0f, 0.72f);
@@ -45,6 +52,10 @@ public sealed class InputVisualizer : MonoBehaviour
     private GUIStyle _contextStyle;
     private Texture2D _backgroundTexture;
     private bool _stylesInitialized;
+    private bool _hasLastActivityLog;
+    private UXInput.Watch.InputProfile _lastActivityProfile;
+    private string _lastActivityDeviceName;
+    private float _lastActivityLogTime;
 
     /// <summary>
     /// 获取或设置是否在屏幕上绘制输入历史。
@@ -74,6 +85,8 @@ public sealed class InputVisualizer : MonoBehaviour
         entryHeight = Mathf.Max(8f, entryHeight);
         panelWidth = Mathf.Max(80f, panelWidth);
         fontSize = Mathf.Max(8, fontSize);
+        repeatedDeviceActivityInterval = Mathf.Max(0f, repeatedDeviceActivityInterval);
+        duplicateMergeWindow = Mathf.Max(0f, duplicateMergeWindow);
         _stylesInitialized = false;
     }
 #endif
@@ -94,6 +107,16 @@ public sealed class InputVisualizer : MonoBehaviour
         {
             UXInput.Watch.OnContextChanged += HandleContextChanged;
         }
+
+        if (logReaderReads)
+        {
+            UXInput.Reader.OnRead += HandleReaderRead;
+        }
+
+        if (logReaderContinuousReads)
+        {
+            UXInput.Reader.OnContinuousRead += HandleReaderRead;
+        }
     }
 
     private void OnDisable()
@@ -101,6 +124,8 @@ public sealed class InputVisualizer : MonoBehaviour
         InputSystem.onActionChange -= HandleActionChange;
         UXInput.Watch.OnInputActivity -= HandleInputActivity;
         UXInput.Watch.OnContextChanged -= HandleContextChanged;
+        UXInput.Reader.OnRead -= HandleReaderRead;
+        UXInput.Reader.OnContinuousRead -= HandleReaderRead;
     }
 
     private void Update()
@@ -208,6 +233,11 @@ public sealed class InputVisualizer : MonoBehaviour
             return;
         }
 
+        if (!logPointerMovementActions && IsPointerMovementAction(action))
+        {
+            return;
+        }
+
         string mapName = action.actionMap != null ? action.actionMap.name : string.Empty;
         string actionName = string.IsNullOrEmpty(mapName) ? action.name : string.Concat(mapName, "/", action.name);
         string deviceName = action.activeControl != null && action.activeControl.device != null
@@ -224,12 +254,118 @@ public sealed class InputVisualizer : MonoBehaviour
 
     private void HandleInputActivity(UXInput.Watch.InputContext context)
     {
+        if (!ShouldLogInputActivity(context))
+        {
+            return;
+        }
+
         AddEntry(string.Concat("Activity: ", context.InputProfile, " / ", context.DeviceName), EntryKind.Normal);
     }
 
     private void HandleContextChanged(UXInput.Watch.InputContext context)
     {
         AddEntry(string.Concat("Context: ", context.InputType, " / ", context.InputProfile), EntryKind.Context);
+    }
+
+    private void HandleReaderRead(UXInput.Reader.ReadTrace trace)
+    {
+        string actionName = GetReaderActionName(trace);
+        if (string.IsNullOrEmpty(actionName))
+        {
+            return;
+        }
+
+        string partText = string.IsNullOrEmpty(trace.CompositePartName)
+            ? string.Empty
+            : string.Concat("/", trace.CompositePartName);
+        string ownerText = GetReaderOwnerText(trace);
+        string valueText = IsToggleTrace(trace.Kind) ? string.Concat(" = ", trace.BoolValue) : string.Empty;
+
+        AddEntry(
+            string.Concat("Reader: ", trace.Kind, " ", actionName, partText, ownerText, valueText),
+            EntryKind.Active);
+    }
+
+    private static string GetReaderActionName(UXInput.Reader.ReadTrace trace)
+    {
+        if (trace.Action != null)
+        {
+            string mapName = trace.Action.actionMap != null ? trace.Action.actionMap.name : string.Empty;
+            return string.IsNullOrEmpty(mapName)
+                ? trace.Action.name
+                : string.Concat(mapName, "/", trace.Action.name);
+        }
+
+        return trace.ActionName;
+    }
+
+    private static string GetReaderOwnerText(UXInput.Reader.ReadTrace trace)
+    {
+        if (!string.IsNullOrEmpty(trace.OwnerKey))
+        {
+            return string.Concat(" [", trace.OwnerKey, "]");
+        }
+
+        return trace.OwnerId != 0 ? string.Concat(" [", trace.OwnerId, "]") : string.Empty;
+    }
+
+    private static bool IsToggleTrace(UXInput.Reader.ReadTraceKind kind)
+    {
+        return kind == UXInput.Reader.ReadTraceKind.ButtonToggle
+               || kind == UXInput.Reader.ReadTraceKind.PressedToggle
+               || kind == UXInput.Reader.ReadTraceKind.CompositePartButtonToggle;
+    }
+
+    private bool ShouldLogInputActivity(UXInput.Watch.InputContext context)
+    {
+        float currentTime = Time.unscaledTime;
+        if (!_hasLastActivityLog
+            || context.InputProfile != _lastActivityProfile
+            || !string.Equals(context.DeviceName, _lastActivityDeviceName, StringComparison.Ordinal))
+        {
+            _hasLastActivityLog = true;
+            _lastActivityProfile = context.InputProfile;
+            _lastActivityDeviceName = context.DeviceName;
+            _lastActivityLogTime = currentTime;
+            return true;
+        }
+
+        if (!logRepeatedDeviceActivity)
+        {
+            return false;
+        }
+
+        if (currentTime - _lastActivityLogTime < repeatedDeviceActivityInterval)
+        {
+            return false;
+        }
+
+        _lastActivityLogTime = currentTime;
+        return true;
+    }
+
+    private static bool IsPointerMovementAction(InputAction action)
+    {
+        return IsPointerMovementControl(action.activeControl);
+    }
+
+    private static bool IsPointerMovementControl(InputControl control)
+    {
+        if (control == null)
+        {
+            return false;
+        }
+
+        string controlName = control.name;
+        if (!string.Equals(controlName, "delta", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(controlName, "position", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return control.device is Pointer
+               || control.device is Mouse
+               || control.device is Touchscreen;
     }
 
     private void AddEntry(string text, EntryKind kind)
@@ -240,6 +376,11 @@ public sealed class InputVisualizer : MonoBehaviour
         }
 
         EnsureHistoryCapacity();
+
+        if (TryMergeDuplicateEntry(text, kind))
+        {
+            return;
+        }
 
         while (_entryCount >= maxHistoryEntries)
         {
@@ -253,10 +394,42 @@ public sealed class InputVisualizer : MonoBehaviour
         _entries[_entryCount] = new HistoryEntry
         {
             Text = displayText,
+            Key = text,
             Timestamp = Time.unscaledTime,
             Kind = kind
         };
         _entryCount++;
+    }
+
+    private bool TryMergeDuplicateEntry(string text, EntryKind kind)
+    {
+        if (!mergeDuplicateEntries || duplicateMergeWindow <= 0f)
+        {
+            return false;
+        }
+
+        float currentTime = Time.unscaledTime;
+        for (int i = _entryCount - 1; i >= 0; i--)
+        {
+            HistoryEntry entry = _entries[i];
+            if (currentTime - entry.Timestamp > duplicateMergeWindow)
+            {
+                break;
+            }
+
+            if (entry.Kind != kind || !string.Equals(entry.Key, text, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            _entries[i].Timestamp = currentTime;
+            _entries[i].Text = showTimestamps
+                ? string.Concat("[", currentTime.ToString("0.00"), "] ", text)
+                : text;
+            return true;
+        }
+
+        return false;
     }
 
     private void RemoveAt(int index)
@@ -356,6 +529,7 @@ public sealed class InputVisualizer : MonoBehaviour
     private struct HistoryEntry
     {
         internal string Text;
+        internal string Key;
         internal float Timestamp;
         internal EntryKind Kind;
     }

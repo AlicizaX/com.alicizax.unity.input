@@ -94,7 +94,7 @@ public sealed class InputDefineGeneratorWindow : EditorWindow
         }
 
         EditorGUILayout.HelpBox(
-            "The generated class reads actions through InputActionReader and toggles maps through IInputActionProvider.Actions.",
+            "The generated class reads actions through UXInput.Reader and toggles maps through IInputActionProvider.Actions.",
             MessageType.None);
     }
 
@@ -506,7 +506,7 @@ internal static class InputDefineCodeGenerator
             AppendIndent(builder, indent);
             builder.Append("public static InputAction ");
             builder.Append(actionProperty);
-            builder.Append(" => InputActionReader.ResolveAction(");
+            builder.Append(" => UXInput.Reader.ResolveAction(");
             builder.Append(pathConstant);
             builder.AppendLine(");");
         }
@@ -521,13 +521,13 @@ internal static class InputDefineCodeGenerator
         switch (accessorKind)
         {
             case AccessorKind.Button:
-                builder.Append("InputActionReader.ReadButton(");
+                builder.Append("UXInput.Reader.ReadButton(");
                 break;
             case AccessorKind.Pressed:
-                builder.Append("InputActionReader.ReadPressed(");
+                builder.Append("UXInput.Reader.ReadPressed(");
                 break;
             default:
-                builder.Append("InputActionReader.ReadValue<");
+                builder.Append("UXInput.Reader.ReadValue<");
                 builder.Append(valueType);
                 builder.Append(">(");
                 break;
@@ -559,7 +559,7 @@ internal static class InputDefineCodeGenerator
         AppendIndent(builder, indent);
         builder.Append("public static bool ");
         builder.Append(onceMethod);
-        builder.Append("(UnityEngine.Object owner) => InputActionReader.");
+        builder.Append("(UnityEngine.Object owner) => UXInput.Reader.");
         builder.Append(onceReader);
         builder.Append("(owner, ");
         builder.Append(pathConstant);
@@ -568,7 +568,7 @@ internal static class InputDefineCodeGenerator
         AppendIndent(builder, indent);
         builder.Append("public static bool ");
         builder.Append(onceMethod);
-        builder.Append("(string key) => InputActionReader.");
+        builder.Append("(string key) => UXInput.Reader.");
         builder.Append(onceReader);
         builder.Append("(key, ");
         builder.Append(pathConstant);
@@ -577,7 +577,7 @@ internal static class InputDefineCodeGenerator
         AppendIndent(builder, indent);
         builder.Append("public static bool ");
         builder.Append(toggleMethod);
-        builder.Append("(UnityEngine.Object owner) => InputActionReader.");
+        builder.Append("(UnityEngine.Object owner) => UXInput.Reader.");
         builder.Append(toggleReader);
         builder.Append("(owner, ");
         builder.Append(pathConstant);
@@ -586,7 +586,7 @@ internal static class InputDefineCodeGenerator
         AppendIndent(builder, indent);
         builder.Append("public static bool ");
         builder.Append(toggleMethod);
-        builder.Append("(string key) => InputActionReader.");
+        builder.Append("(string key) => UXInput.Reader.");
         builder.Append(toggleReader);
         builder.Append("(key, ");
         builder.Append(pathConstant);
@@ -595,7 +595,7 @@ internal static class InputDefineCodeGenerator
         AppendIndent(builder, indent);
         builder.Append("public static void ");
         builder.Append(resetToggleMethod);
-        builder.Append("(string key) => InputActionReader.ResetToggledButton(key, ");
+        builder.Append("(string key) => UXInput.Reader.ResetToggledButton(key, ");
         builder.Append(pathConstant);
         builder.AppendLine(");");
     }

@@ -1,40 +1,70 @@
 #if INPUTSYSTEM_SUPPORT
+using System;
 using UnityEngine;
+using UnityEngine.Events;
+using UnityEngine.InputSystem;
+using UnityEngine.UI;
 
 public abstract class InputGlyphBehaviourBase : MonoBehaviour
 {
-    protected InputGlyphContext CurrentContext { get; private set; }
-    protected string CurrentProfileId
+    public enum ActionSourceMode
     {
-        get
-        {
-            InputGlyphContext context = CurrentContext;
-            return context != null ? context.ProfileId : InputGlyphProfileIds.KeyboardMouse;
-        }
+        ActionReference,
+        HotkeyTrigger,
+        ActionName
     }
+
+    [Serializable]
+    public sealed class DeviceProfileEvent
+    {
+        public string profileId;
+        public UnityEvent onMatched;
+        public UnityEvent onNotMatched;
+    }
+
+    [Header("Source")] [SerializeField] private ActionSourceMode actionSourceMode = ActionSourceMode.ActionReference;
+    [SerializeField] private InputActionReference actionReference;
+    [SerializeField] private Component hotkeyTrigger;
+    [SerializeField] private string actionName;
+    [SerializeField] private string compositePartName;
+
+    [Header("Platform Events")] [SerializeField]
+    private DeviceProfileEvent[] profileEvents = Array.Empty<DeviceProfileEvent>();
+
+    private bool _hasInvokedProfileEvent;
+    private string _lastInvokedProfileId;
+
+    protected string CurrentProfileId => UXInput.Glyph.CurrentProfileId;
+    protected string CompositePartName => compositePartName;
+
+#if UNITY_EDITOR
+    protected virtual void OnValidate()
+    {
+        AutoAssignHotkeyTrigger();
+        AutoAssignTarget();
+    }
+#endif
 
     protected virtual void OnEnable()
     {
-        CurrentContext = ResolveCurrentContext();
-        InputDeviceWatcher.OnDeviceContextChanged += HandleGlobalContextChanged;
-        InputBindingManager.BindingsChanged += HandleBindingsChanged;
+        AutoAssignHotkeyTrigger();
+        AutoAssignTarget();
+        UXInput.Watch.OnContextChanged += HandleInputContextChanged;
+        UXInput.Rebind.OnBindingsChanged += HandleBindingsChanged;
         RefreshGlyph();
+        InvokeProfileEvents(true);
     }
 
     protected virtual void OnDisable()
     {
-        InputDeviceWatcher.OnDeviceContextChanged -= HandleGlobalContextChanged;
-        InputBindingManager.BindingsChanged -= HandleBindingsChanged;
+        UXInput.Watch.OnContextChanged -= HandleInputContextChanged;
+        UXInput.Rebind.OnBindingsChanged -= HandleBindingsChanged;
     }
 
-    protected InputGlyphContext ResolveCurrentContext()
+    private void HandleInputContextChanged(UXInput.Watch.InputContext context)
     {
-        return InputDeviceWatcher.CurrentContext;
-    }
-
-    private void HandleGlobalContextChanged(InputGlyphContext context)
-    {
-        ApplyContext(context);
+        InvokeProfileEvents(false);
+        RefreshGlyph();
     }
 
     private void HandleBindingsChanged()
@@ -42,17 +72,81 @@ public abstract class InputGlyphBehaviourBase : MonoBehaviour
         RefreshGlyph();
     }
 
-    private void ApplyContext(InputGlyphContext context)
+    protected InputAction ResolveAction()
     {
-        InputGlyphContext previousContext = CurrentContext;
-        InputGlyphContext resolvedContext = context != null ? context : InputDeviceWatcher.CurrentContext;
-        CurrentContext = resolvedContext;
-        OnInputContextChanged(previousContext, resolvedContext);
-        RefreshGlyph();
+        switch (actionSourceMode)
+        {
+            case ActionSourceMode.ActionReference:
+                return actionReference != null ? actionReference.action : null;
+            case ActionSourceMode.HotkeyTrigger:
+                return ResolveHotkeyAction();
+            case ActionSourceMode.ActionName:
+                return InputActionProvider.ResolveAction(actionName);
+            default:
+                return null;
+        }
     }
 
-    protected virtual void OnInputContextChanged(InputGlyphContext previousContext, InputGlyphContext newContext)
+    protected virtual void AutoAssignTarget()
     {
+    }
+
+    private InputAction ResolveHotkeyAction()
+    {
+        HotkeyComponentBase trigger = ResolveHotkeyTrigger();
+        return trigger != null && trigger.HotkeyAction != null ? trigger.HotkeyAction.action : null;
+    }
+
+    private HotkeyComponentBase ResolveHotkeyTrigger()
+    {
+        return hotkeyTrigger as HotkeyComponentBase;
+    }
+
+    private void AutoAssignHotkeyTrigger()
+    {
+        if (actionSourceMode != ActionSourceMode.HotkeyTrigger || hotkeyTrigger != null)
+        {
+            return;
+        }
+
+        if (TryGetComponent(typeof(HotkeyComponentBase), out Component component))
+        {
+            hotkeyTrigger = component;
+        }
+    }
+
+    private void InvokeProfileEvents(bool force)
+    {
+        string currentProfileId = CurrentProfileId;
+        if (!force && _hasInvokedProfileEvent && string.Equals(_lastInvokedProfileId, currentProfileId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _hasInvokedProfileEvent = true;
+        _lastInvokedProfileId = currentProfileId;
+        if (profileEvents == null)
+        {
+            return;
+        }
+
+        for (int i = 0; i < profileEvents.Length; i++)
+        {
+            DeviceProfileEvent profileEvent = profileEvents[i];
+            if (profileEvent == null)
+            {
+                continue;
+            }
+
+            if (string.Equals(profileEvent.profileId, currentProfileId, StringComparison.OrdinalIgnoreCase))
+            {
+                profileEvent.onMatched?.Invoke();
+            }
+            else
+            {
+                profileEvent.onNotMatched?.Invoke();
+            }
+        }
     }
 
     protected abstract void RefreshGlyph();

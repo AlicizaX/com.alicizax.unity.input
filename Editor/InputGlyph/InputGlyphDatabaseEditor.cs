@@ -66,7 +66,7 @@ public sealed class InputGlyphDatabaseEditor : Editor
         }
 
         InputGlyphDatabase database = CreateInstance<InputGlyphDatabase>();
-        database.EditorEnsureDefaultProfiles();
+        InputGlyphDatabaseWindow.EnsureFixedProfiles(database);
         AssetDatabase.CreateAsset(database, path);
         AssetDatabase.SaveAssets();
         AssetDatabase.Refresh();
@@ -82,8 +82,10 @@ internal sealed class InputGlyphDatabaseWindow : EditorWindow
     private const string DefaultDatabaseName = "InputGlyphDatabase";
     private const string ProfilesPropertyName = "profiles";
     private const string PlaceholderSpritePropertyName = "placeholderSprite";
-    private const string ProfileIdPropertyName = "profileId";
-    private const string GlyphsPropertyName = "glyphs";
+    private const string ProfileIdPropertyName = "id";
+    private const string FallbackProfileIdsPropertyName = "fallbackProfileIds";
+    private const string BindingGroupHintsPropertyName = "bindingGroupHints";
+    private const string EntriesPropertyName = "entries";
     private const string ControlPathsPropertyName = "controlPaths";
     private const string SpritePropertyName = "sprite";
     private const string TmpSpriteNamePropertyName = "tmpSpriteName";
@@ -103,12 +105,14 @@ internal sealed class InputGlyphDatabaseWindow : EditorWindow
 
     private static readonly ProfileView[] ProfileViews =
     {
-        new ProfileView(InputGlyphProfileIds.KeyboardMouse, "Keyboard & Mouse"),
-        new ProfileView(InputGlyphProfileIds.GenericGamepad, "Generic Gamepad"),
-        new ProfileView(InputGlyphProfileIds.Xbox, "Xbox"),
-        new ProfileView(InputGlyphProfileIds.PlayStation, "PlayStation"),
-        new ProfileView(InputGlyphProfileIds.Switch, "Switch"),
-        new ProfileView(InputGlyphProfileIds.SteamDeck, "Steam Deck"),
+        new ProfileView(UXInput.Watch.InputProfile.KeyboardMouse.ToString(), "Keyboard & Mouse"),
+        new ProfileView(UXInput.Watch.InputProfile.GenericGamepad.ToString(), "Generic Gamepad"),
+        new ProfileView(UXInput.Watch.InputProfile.GenericJoystick.ToString(), "Generic Joystick"),
+        new ProfileView(UXInput.Watch.InputProfile.Xbox.ToString(), "Xbox"),
+        new ProfileView(UXInput.Watch.InputProfile.PlayStation.ToString(), "PlayStation"),
+        new ProfileView(UXInput.Watch.InputProfile.Switch.ToString(), "Switch"),
+        new ProfileView(UXInput.Watch.InputProfile.SteamDeck.ToString(), "Steam Deck"),
+        new ProfileView(UXInput.Watch.InputProfile.SteamController.ToString(), "Steam Controller"),
     };
 
     private InputGlyphDatabase _database;
@@ -164,7 +168,7 @@ internal sealed class InputGlyphDatabaseWindow : EditorWindow
 
         _database = database;
         Undo.RecordObject(_database, "Initialize Input Glyph Database");
-        if (_database.EditorEnsureDefaultProfiles())
+        if (EnsureFixedProfiles(_database))
         {
             EditorUtility.SetDirty(_database);
         }
@@ -206,7 +210,7 @@ internal sealed class InputGlyphDatabaseWindow : EditorWindow
             }
 
             database = CreateInstance<InputGlyphDatabase>();
-            database.EditorEnsureDefaultProfiles();
+            EnsureFixedProfiles(database);
             AssetDatabase.CreateAsset(database, path);
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
@@ -266,7 +270,7 @@ internal sealed class InputGlyphDatabaseWindow : EditorWindow
         ToolbarButton ensureButton = new ToolbarButton(EnsureDefaults)
         {
             text = "Sync Profiles",
-            tooltip = "Sync fixed profile structure and default glyph rows",
+            tooltip = "Sync fixed profile ids, fallback chain, and binding-group hints",
         };
         ApplyToolbarButtonStyle(ensureButton);
         toolbar.Add(ensureButton);
@@ -381,19 +385,19 @@ internal sealed class InputGlyphDatabaseWindow : EditorWindow
             return;
         }
 
-        SerializedProperty glyphs = profile.FindPropertyRelative(GlyphsPropertyName);
+        SerializedProperty entries = profile.FindPropertyRelative(EntriesPropertyName);
 
         bool hasVisibleGlyph = false;
-        for (int i = 0; i < glyphs.arraySize; i++)
+        for (int i = 0; i < entries.arraySize; i++)
         {
-            SerializedProperty glyph = glyphs.GetArrayElementAtIndex(i);
+            SerializedProperty glyph = entries.GetArrayElementAtIndex(i);
             if (!GlyphMatchesSearch(glyph))
             {
                 continue;
             }
 
             hasVisibleGlyph = true;
-            _glyphScrollView.Add(CreateGlyphCard(glyphs, glyph, i));
+            _glyphScrollView.Add(CreateGlyphCard(entries, glyph, i));
         }
 
         if (!hasVisibleGlyph)
@@ -404,7 +408,7 @@ internal sealed class InputGlyphDatabaseWindow : EditorWindow
     }
 
     private VisualElement CreateGlyphCard(
-        SerializedProperty glyphs,
+        SerializedProperty entries,
         SerializedProperty glyph,
         int index)
     {
@@ -439,7 +443,7 @@ internal sealed class InputGlyphDatabaseWindow : EditorWindow
         header.style.marginBottom = 2f;
         card.Add(header);
 
-        Button deleteButton = CreateFlatButton("x", "Delete glyph", new GlyphButtonAction(this, glyphs.propertyPath, index).Invoke);
+        Button deleteButton = CreateFlatButton("x", "Delete glyph", new GlyphButtonAction(this, entries.propertyPath, index).Invoke);
         deleteButton.style.width = 28f;
         deleteButton.style.marginRight = 2f;
         header.Add(deleteButton);
@@ -590,12 +594,12 @@ internal sealed class InputGlyphDatabaseWindow : EditorWindow
         return container;
     }
 
-    private void AddGlyph(SerializedProperty glyphs, string path = null)
+    private void AddGlyph(SerializedProperty entries, string path = null)
     {
         _serializedDatabase.Update();
-        int index = glyphs.arraySize;
-        glyphs.InsertArrayElementAtIndex(index);
-        SerializedProperty glyph = glyphs.GetArrayElementAtIndex(index);
+        int index = entries.arraySize;
+        entries.InsertArrayElementAtIndex(index);
+        SerializedProperty glyph = entries.GetArrayElementAtIndex(index);
         glyph.FindPropertyRelative(SpritePropertyName).objectReferenceValue = null;
         glyph.FindPropertyRelative(TmpSpriteNamePropertyName).stringValue = string.Empty;
         SerializedProperty paths = glyph.FindPropertyRelative(ControlPathsPropertyName);
@@ -620,19 +624,19 @@ internal sealed class InputGlyphDatabaseWindow : EditorWindow
             return;
         }
 
-        AddGlyph(profile.FindPropertyRelative(GlyphsPropertyName));
+        AddGlyph(profile.FindPropertyRelative(EntriesPropertyName));
     }
 
-    private void DeleteGlyph(string glyphsPropertyPath, int index)
+    private void DeleteGlyph(string entriesPropertyPath, int index)
     {
         _serializedDatabase.Update();
-        SerializedProperty glyphs = _serializedDatabase.FindProperty(glyphsPropertyPath);
-        if (glyphs == null || index < 0 || index >= glyphs.arraySize)
+        SerializedProperty entries = _serializedDatabase.FindProperty(entriesPropertyPath);
+        if (entries == null || index < 0 || index >= entries.arraySize)
         {
             return;
         }
 
-        glyphs.DeleteArrayElementAtIndex(index);
+        entries.DeleteArrayElementAtIndex(index);
         if (_serializedDatabase.ApplyModifiedProperties())
         {
             MarkDirtyAndRebuild();
@@ -923,11 +927,12 @@ internal sealed class InputGlyphDatabaseWindow : EditorWindow
         }
 
         Undo.RecordObject(_database, "Sync Input Glyph Fixed Profiles");
-        if (_database.EditorEnsureDefaultProfiles())
+        if (EnsureFixedProfiles(_serializedDatabase))
         {
             EditorUtility.SetDirty(_database);
         }
 
+        _database.EditorRefreshCache();
         _serializedDatabase.Update();
         RefreshWindow();
     }
@@ -971,12 +976,13 @@ internal sealed class InputGlyphDatabaseWindow : EditorWindow
 
     private void EnsureSerializedProfiles()
     {
-        if (_database.EditorEnsureDefaultProfiles())
+        if (EnsureFixedProfiles(_serializedDatabase))
         {
             EditorUtility.SetDirty(_database);
-            _serializedDatabase.Update();
+            _database.EditorRefreshCache();
         }
 
+        _serializedDatabase.Update();
         _profilesProperty = _serializedDatabase.FindProperty(ProfilesPropertyName);
         _selectedProfileIndex = Mathf.Clamp(_selectedProfileIndex, 0, ProfileViews.Length - 1);
     }
@@ -990,12 +996,223 @@ internal sealed class InputGlyphDatabaseWindow : EditorWindow
 
         SerializedProperty profile = _profilesProperty.GetArrayElementAtIndex(profileIndex);
         SerializedProperty profileId = profile.FindPropertyRelative(ProfileIdPropertyName);
-        if (!InputGlyphStringUtility.EqualsOrdinal(profileId.stringValue, ProfileViews[profileIndex].Id))
+        if (!string.Equals(profileId.stringValue, ProfileViews[profileIndex].Id, StringComparison.Ordinal))
         {
             return null;
         }
 
         return profile;
+    }
+
+    internal static bool EnsureFixedProfiles(InputGlyphDatabase database)
+    {
+        if (database == null)
+        {
+            return false;
+        }
+
+        SerializedObject serializedDatabase = new SerializedObject(database);
+        bool changed = EnsureFixedProfiles(serializedDatabase);
+        if (changed)
+        {
+            database.EditorRefreshCache();
+        }
+
+        return changed;
+    }
+
+    private static bool EnsureFixedProfiles(SerializedObject serializedDatabase)
+    {
+        if (serializedDatabase == null)
+        {
+            return false;
+        }
+
+        serializedDatabase.Update();
+        SerializedProperty profiles = serializedDatabase.FindProperty(ProfilesPropertyName);
+        if (profiles == null)
+        {
+            return false;
+        }
+
+        bool changed = false;
+        int oldProfileCount = profiles.arraySize;
+        if (profiles.arraySize != ProfileViews.Length)
+        {
+            profiles.arraySize = ProfileViews.Length;
+            changed = true;
+        }
+
+        for (int i = 0; i < ProfileViews.Length; i++)
+        {
+            SerializedProperty profile = profiles.GetArrayElementAtIndex(i);
+            changed |= EnsureFixedProfile(profile, ProfileViews[i], i >= oldProfileCount);
+        }
+
+        if (changed)
+        {
+            serializedDatabase.ApplyModifiedProperties();
+        }
+
+        return changed;
+    }
+
+    private static bool EnsureFixedProfile(SerializedProperty profile, ProfileView view, bool clearEntries)
+    {
+        if (profile == null)
+        {
+            return false;
+        }
+
+        bool changed = false;
+        SerializedProperty id = profile.FindPropertyRelative(ProfileIdPropertyName);
+        bool idChanged = id != null && !string.Equals(id.stringValue, view.Id, StringComparison.Ordinal);
+        changed |= SetString(id, view.Id);
+        changed |= SetStringArray(
+            profile.FindPropertyRelative(FallbackProfileIdsPropertyName),
+            GetDefaultFallbackProfileIds(view.Id));
+        changed |= SetStringArray(
+            profile.FindPropertyRelative(BindingGroupHintsPropertyName),
+            GetDefaultBindingGroupHints(view.Id));
+
+        if (clearEntries || idChanged)
+        {
+            SerializedProperty entries = profile.FindPropertyRelative(EntriesPropertyName);
+            if (entries != null && entries.isArray && entries.arraySize > 0)
+            {
+                entries.ClearArray();
+                changed = true;
+            }
+        }
+
+        return changed;
+    }
+
+    private static bool SetString(SerializedProperty property, string value)
+    {
+        if (property == null)
+        {
+            return false;
+        }
+
+        if (value == null)
+        {
+            value = string.Empty;
+        }
+
+        if (string.Equals(property.stringValue, value, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        property.stringValue = value;
+        return true;
+    }
+
+    private static bool SetStringArray(SerializedProperty property, string[] values)
+    {
+        if (property == null)
+        {
+            return false;
+        }
+
+        if (values == null)
+        {
+            values = Array.Empty<string>();
+        }
+
+        bool changed = false;
+        if (property.arraySize != values.Length)
+        {
+            property.arraySize = values.Length;
+            changed = true;
+        }
+
+        for (int i = 0; i < values.Length; i++)
+        {
+            SerializedProperty element = property.GetArrayElementAtIndex(i);
+            if (!string.Equals(element.stringValue, values[i], StringComparison.Ordinal))
+            {
+                element.stringValue = values[i];
+                changed = true;
+            }
+        }
+
+        return changed;
+    }
+
+    private static string[] GetDefaultFallbackProfileIds(string profileId)
+    {
+        string keyboardMouse = UXInput.Watch.InputProfile.KeyboardMouse.ToString();
+        string genericGamepad = UXInput.Watch.InputProfile.GenericGamepad.ToString();
+        string genericJoystick = UXInput.Watch.InputProfile.GenericJoystick.ToString();
+        string xbox = UXInput.Watch.InputProfile.Xbox.ToString();
+        string switchProfile = UXInput.Watch.InputProfile.Switch.ToString();
+        string steamDeck = UXInput.Watch.InputProfile.SteamDeck.ToString();
+        string steamController = UXInput.Watch.InputProfile.SteamController.ToString();
+
+        if (string.Equals(profileId, keyboardMouse, StringComparison.Ordinal)
+            || string.Equals(profileId, genericGamepad, StringComparison.Ordinal))
+        {
+            return Array.Empty<string>();
+        }
+
+        if (string.Equals(profileId, genericJoystick, StringComparison.Ordinal))
+        {
+            return new[] { genericGamepad };
+        }
+
+        if (string.Equals(profileId, switchProfile, StringComparison.Ordinal))
+        {
+            return new[] { genericGamepad, xbox };
+        }
+
+        if (string.Equals(profileId, steamDeck, StringComparison.Ordinal))
+        {
+            return new[] { xbox, genericGamepad };
+        }
+
+        if (string.Equals(profileId, steamController, StringComparison.Ordinal))
+        {
+            return new[] { steamDeck, xbox, genericGamepad };
+        }
+
+        return new[] { genericGamepad };
+    }
+
+    private static string[] GetDefaultBindingGroupHints(string profileId)
+    {
+        if (string.Equals(profileId, UXInput.Watch.InputProfile.KeyboardMouse.ToString(), StringComparison.Ordinal))
+        {
+            return new[] { "keyboard", "mouse", "keyboard&mouse", "keyboardmouse", "kbm" };
+        }
+
+        if (string.Equals(profileId, UXInput.Watch.InputProfile.Xbox.ToString(), StringComparison.Ordinal))
+        {
+            return new[] { "xbox", "xinput", "gamepad", "controller" };
+        }
+
+        if (string.Equals(profileId, UXInput.Watch.InputProfile.PlayStation.ToString(), StringComparison.Ordinal))
+        {
+            return new[] { "playstation", "dualshock", "dualsense", "gamepad", "controller" };
+        }
+
+        if (string.Equals(profileId, UXInput.Watch.InputProfile.Switch.ToString(), StringComparison.Ordinal))
+        {
+            return new[] { "switch", "nintendo", "joy-con", "joycon", "gamepad", "controller" };
+        }
+
+        if (string.Equals(profileId, UXInput.Watch.InputProfile.SteamDeck.ToString(), StringComparison.Ordinal))
+        {
+            return new[] { "steamdeck", "steam", "xbox", "xinput", "gamepad", "controller" };
+        }
+
+        if (string.Equals(profileId, UXInput.Watch.InputProfile.SteamController.ToString(), StringComparison.Ordinal))
+        {
+            return new[] { "steam", "steamcontroller", "xbox", "xinput", "gamepad", "controller" };
+        }
+
+        return new[] { "gamepad", "controller", "joystick" };
     }
 
     private readonly struct ProfileView
@@ -1013,19 +1230,19 @@ internal sealed class InputGlyphDatabaseWindow : EditorWindow
     private sealed class GlyphButtonAction
     {
         private readonly InputGlyphDatabaseWindow _owner;
-        private readonly string _glyphsPropertyPath;
+        private readonly string _entriesPropertyPath;
         private readonly int _index;
 
-        public GlyphButtonAction(InputGlyphDatabaseWindow owner, string glyphsPropertyPath, int index)
+        public GlyphButtonAction(InputGlyphDatabaseWindow owner, string entriesPropertyPath, int index)
         {
             _owner = owner;
-            _glyphsPropertyPath = glyphsPropertyPath;
+            _entriesPropertyPath = entriesPropertyPath;
             _index = index;
         }
 
         public void Invoke()
         {
-            _owner.DeleteGlyph(_glyphsPropertyPath, _index);
+            _owner.DeleteGlyph(_entriesPropertyPath, _index);
         }
     }
 

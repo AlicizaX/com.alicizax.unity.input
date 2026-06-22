@@ -95,7 +95,7 @@ public static partial class UXInput
         /// 使用输入动作资源初始化重绑定服务，并从固定 JSON 文件加载已保存的绑定覆盖。
         /// </summary>
         /// <param name="actions">需要管理绑定覆盖的输入动作资源。</param>
-        public static void Initialize(InputActionAsset actions)
+        internal static void Initialize(InputActionAsset actions)
         {
             if (_operation != null)
             {
@@ -112,7 +112,7 @@ public static partial class UXInput
         /// 停止当前活动的重绑定操作，清理待处理变更，并释放当前输入动作资源。
         /// </summary>
         /// <param name="clearEvents">为 true 时清除注册到此服务的全部事件订阅。</param>
-        public static void Shutdown(bool clearEvents = false)
+        internal static void Shutdown(bool clearEvents = false)
         {
             CancelRebinding();
             ClearPreparedInternal();
@@ -885,7 +885,7 @@ public static partial class UXInput
                 }
             }
 
-            return InputActionResolver.TryGetAction(actionName, out InputAction resolved)
+            return InputActionProvider.TryResolveAction(actionName, out InputAction resolved)
                 ? resolved
                 : null;
         }

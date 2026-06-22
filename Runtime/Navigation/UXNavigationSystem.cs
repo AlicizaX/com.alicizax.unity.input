@@ -2,9 +2,6 @@
 using System;
 using AlicizaX;
 using AlicizaX.UI.Runtime;
-#if UNITY_EDITOR
-using UnityEditor;
-#endif
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -24,52 +21,31 @@ namespace AlicizaX.UI.UXNavigation
         private static bool _suppressionDirty = true;
         private static bool _isFlushingState;
         private static bool _initialized;
-        private static bool _isShuttingDown;
         private static bool _gamepadRequireSelection = true;
         private static bool _keyboardRequireSelection;
 
-
-        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
-        private static void InitializeOnLoad()
+        internal static void Initialize()
         {
-            _isShuttingDown = false;
-            Initialize();
-        }
-
-        private static void Initialize()
-        {
-            if (_initialized || _isShuttingDown)
+            if (_initialized)
             {
                 return;
             }
 
-            UXInput.Watch.Initialize();
-            ResetStaticState(false);
+            ResetStaticState();
             _initialized = true;
-            Application.quitting -= OnApplicationQuitting;
-            Application.quitting += OnApplicationQuitting;
             SubscribeInputWatcher();
             RegisterLoadedScopes();
-
-#if UNITY_EDITOR
-            EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
-            EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
-#endif
         }
 
-        private static void Shutdown()
+        internal static void Shutdown()
         {
             if (!_initialized)
             {
                 return;
             }
 
-#if UNITY_EDITOR
-            EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
-#endif
-            Application.quitting -= OnApplicationQuitting;
             UnsubscribeInputWatcher();
-            ResetStaticState(true);
+            ResetStaticState();
         }
 
 
@@ -199,16 +175,6 @@ namespace AlicizaX.UI.UXNavigation
 
         private static bool EnsureInitialized()
         {
-            if (_isShuttingDown)
-            {
-                return false;
-            }
-
-            if (!_initialized)
-            {
-                Initialize();
-            }
-
             return _initialized;
         }
 
@@ -429,7 +395,7 @@ namespace AlicizaX.UI.UXNavigation
             UXInput.Watch.OnInputActivity -= OnInputActivity;
         }
 
-        private static void ResetStaticState(bool clearEventListeners)
+        private static void ResetStaticState()
         {
             for (int i = 0; i < _scopeCount; i++)
             {
@@ -454,23 +420,6 @@ namespace AlicizaX.UI.UXNavigation
             _gamepadRequireSelection = true;
             _keyboardRequireSelection = false;
         }
-
-        private static void OnApplicationQuitting()
-        {
-            _isShuttingDown = true;
-            Shutdown();
-        }
-
-#if UNITY_EDITOR
-        private static void OnPlayModeStateChanged(PlayModeStateChange state)
-        {
-            if (state == PlayModeStateChange.ExitingPlayMode || state == PlayModeStateChange.EnteredEditMode)
-            {
-                _isShuttingDown = true;
-                Shutdown();
-            }
-        }
-#endif
     }
 }
 #endif

@@ -1,12 +1,11 @@
 #if INPUTSYSTEM_SUPPORT
-using AlicizaX.UI.Runtime;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 namespace UnityEditor.UI
 {
-    [CustomEditor(typeof(HotkeyComponent), true)]
+    [CustomEditor(typeof(HotkeyComponentBase), true)]
     public class HotkeyComponentEditor : Editor
     {
         private SerializedProperty _hotkeyAction;
@@ -30,7 +29,7 @@ namespace UnityEditor.UI
         {
             serializedObject.Update();
 
-            HotkeyComponent hotkeyComponent = (HotkeyComponent)target;
+            HotkeyComponentBase hotkeyComponent = (HotkeyComponentBase)target;
 
             EditorGUILayout.HelpBox(
                 "Hotkeys auto-register to the nearest UIHolderObjectBase at runtime.",
@@ -45,7 +44,7 @@ namespace UnityEditor.UI
                 );
             }
 
-            if (_component.objectReferenceValue == null)
+            if (hotkeyComponent is HotkeyComponent && _component.objectReferenceValue == null)
             {
                 EditorGUILayout.HelpBox("No submit target was found on this object.", MessageType.Error);
                 if (hotkeyComponent.TryGetComponent(typeof(ISubmitHandler), out Component submitHandler))
@@ -53,7 +52,7 @@ namespace UnityEditor.UI
                     _component.objectReferenceValue = submitHandler;
                 }
             }
-            else if (_component.objectReferenceValue is not ISubmitHandler)
+            else if (_component != null && _component.objectReferenceValue != null && _component.objectReferenceValue is not ISubmitHandler)
             {
                 EditorGUILayout.HelpBox("Submit target must implement ISubmitHandler. The invalid reference will be cleared.", MessageType.Error);
                 _component.objectReferenceValue = null;
@@ -69,7 +68,11 @@ namespace UnityEditor.UI
                 EditorGUILayout.LabelField("Hotkey Setting", EditorStyles.boldLabel);
 
                 EditorGUI.BeginDisabledGroup(true);
-                EditorGUILayout.PropertyField(_component, new GUIContent("Component"));
+                if (_component != null)
+                {
+                    EditorGUILayout.PropertyField(_component, new GUIContent("Component"));
+                }
+
                 EditorGUILayout.PropertyField(_holder, new GUIContent("Holder"));
                 EditorGUI.EndDisabledGroup();
 

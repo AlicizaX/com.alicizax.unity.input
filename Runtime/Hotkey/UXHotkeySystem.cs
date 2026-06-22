@@ -45,12 +45,12 @@ namespace UnityEngine.UI
 
     internal readonly struct HotkeyRegistration
     {
-        public readonly IHotkeyTrigger Trigger;
+        public readonly HotkeyComponentBase Trigger;
         public readonly bool ConsumesInput;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public HotkeyRegistration(
-            IHotkeyTrigger trigger,
+            HotkeyComponentBase trigger,
             bool consumesInput)
         {
             Trigger = trigger;
@@ -100,7 +100,7 @@ namespace UnityEngine.UI
             _items[Count++] = registration;
         }
 
-        public bool Remove(IHotkeyTrigger trigger, out HotkeyRegistration removedRegistration)
+        public bool Remove(HotkeyComponentBase trigger)
         {
             for (int i = 0; i < Count; i++)
             {
@@ -109,7 +109,6 @@ namespace UnityEngine.UI
                     continue;
                 }
 
-                removedRegistration = _items[i];
                 int lastIndex = Count - 1;
                 for (int moveIndex = i; moveIndex < lastIndex; moveIndex++)
                 {
@@ -121,18 +120,7 @@ namespace UnityEngine.UI
                 return true;
             }
 
-            removedRegistration = default;
             return false;
-        }
-
-        public void Clear()
-        {
-            for (int i = 0; i < Count; i++)
-            {
-                _items[i] = default;
-            }
-
-            Count = 0;
         }
     }
 
@@ -182,22 +170,22 @@ namespace UnityEngine.UI
             }
 
             HierarchyDepth = GetHierarchyDepth(Holder.transform);
-            ParentHolder = UXHotkeyRegisterManager.FindParentHolder(Holder);
+            ParentHolder = UXHotkeySystem.FindParentHolder(Holder);
         }
 
         public void OnBeforeShowHandler()
         {
-            UXHotkeyRegisterManager.ActivateScope(Holder);
+            UXHotkeySystem.ActivateScope(Holder);
         }
 
         public void OnBeforeClosedHandler()
         {
-            UXHotkeyRegisterManager.DeactivateScope(Holder);
+            UXHotkeySystem.DeactivateScope(Holder);
         }
 
         public void OnDestroyHandler()
         {
-            UXHotkeyRegisterManager.DestroyScope(Holder);
+            UXHotkeySystem.DestroyScope(Holder);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -233,20 +221,17 @@ namespace UnityEngine.UI
         public readonly UIHolderObjectBase Holder;
         public readonly EHotkeyPressType PressType;
         public readonly EHotkeyActionOwnershipMode OwnershipMode;
-        public readonly IHotkeyTrigger Trigger;
 
         public TriggerRegistration(
             InputAction action,
             UIHolderObjectBase holder,
             EHotkeyPressType pressType,
-            EHotkeyActionOwnershipMode ownershipMode,
-            IHotkeyTrigger trigger)
+            EHotkeyActionOwnershipMode ownershipMode)
         {
             Action = action;
             Holder = holder;
             PressType = pressType;
             OwnershipMode = ownershipMode;
-            Trigger = trigger;
         }
     }
 
@@ -264,7 +249,7 @@ namespace UnityEngine.UI
         public bool HasFocus => FocusHolder != null;
     }
 
-    internal static class UXHotkeyRegisterManager
+    internal static class UXHotkeySystem
     {
         private static readonly Dictionary<InputAction, ActionRegistrationBucket> _actions =
             new(ReferenceEqualityComparer<InputAction>.Instance);
@@ -272,8 +257,8 @@ namespace UnityEngine.UI
         private static readonly Dictionary<InputAction, HotkeyPressTarget> _pressTargets =
             new(ReferenceEqualityComparer<InputAction>.Instance);
 
-        private static readonly Dictionary<IHotkeyTrigger, TriggerRegistration> _triggerMap =
-            new(ReferenceEqualityComparer<IHotkeyTrigger>.Instance);
+        private static readonly Dictionary<HotkeyComponentBase, TriggerRegistration> _triggerMap =
+            new(ReferenceEqualityComparer<HotkeyComponentBase>.Instance);
 
         private static readonly Dictionary<UIHolderObjectBase, HotkeyScope> _scopes =
             new(ReferenceEqualityComparer<UIHolderObjectBase>.Instance);
@@ -283,7 +268,7 @@ namespace UnityEngine.UI
         private static readonly HashSet<UIHolderObjectBase> _ancestorHolders =
             new(ReferenceEqualityComparer<UIHolderObjectBase>.Instance);
 
-        private static IHotkeyTrigger[] _destroyScopeTriggers = Array.Empty<IHotkeyTrigger>();
+        private static HotkeyComponentBase[] _destroyScopeTriggers = Array.Empty<HotkeyComponentBase>();
         private static int _destroyScopeTriggerCount;
         private static InputAction[] _pressTargetRemovalBuffer = Array.Empty<InputAction>();
         private static int _pressTargetRemovalCount;
@@ -301,7 +286,7 @@ namespace UnityEngine.UI
         [UnityEditor.Callbacks.DidReloadScripts]
         internal static void ClearHotkeyRegistry()
         {
-            IHotkeyTrigger[] triggers = new IHotkeyTrigger[_triggerMap.Count];
+            HotkeyComponentBase[] triggers = new HotkeyComponentBase[_triggerMap.Count];
             int index = 0;
             foreach (var pair in _triggerMap)
             {
@@ -330,8 +315,15 @@ namespace UnityEngine.UI
         }
 #endif
 
+        internal static void ResetTransientState()
+        {
+            _pressTargets.Clear();
+            Array.Clear(_pressTargetRemovalBuffer, 0, _pressTargetRemovalCount);
+            _pressTargetRemovalCount = 0;
+        }
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static void RegisterHotkey(IHotkeyTrigger trigger, UIHolderObjectBase holder, InputActionReference action, EHotkeyPressType pressType)
+        internal static void RegisterHotkey(HotkeyComponentBase trigger, UIHolderObjectBase holder, InputActionReference action, EHotkeyPressType pressType)
         {
             if (trigger == null || holder == null || action == null || action.action == null)
             {
@@ -365,12 +357,12 @@ namespace UnityEngine.UI
                 scope.ActivationSerial = ++_activationSerial;
             }
 
-            _triggerMap[trigger] = new TriggerRegistration(inputAction, holder, pressType, ownershipMode, trigger);
+            _triggerMap[trigger] = new TriggerRegistration(inputAction, holder, pressType, ownershipMode);
             MarkScopeDirty();
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static void UnregisterHotkey(IHotkeyTrigger trigger)
+        internal static void UnregisterHotkey(HotkeyComponentBase trigger)
         {
             if (trigger == null || !_triggerMap.TryGetValue(trigger, out var triggerRegistration))
             {
@@ -619,7 +611,7 @@ namespace UnityEngine.UI
             return true;
         }
 
-        private static bool RemoveScopeRegistration(HotkeyScope scope, InputAction action, EHotkeyPressType pressType, IHotkeyTrigger trigger)
+        private static bool RemoveScopeRegistration(HotkeyScope scope, InputAction action, EHotkeyPressType pressType, HotkeyComponentBase trigger)
         {
             if (!scope.RegistrationsByAction.TryGetValue(action, out var actionRegistrations))
             {
@@ -627,7 +619,7 @@ namespace UnityEngine.UI
             }
 
             HotkeyRegistrationList registrations = actionRegistrations.GetRegistrations(pressType);
-            if (!registrations.Remove(trigger, out var removedRegistration))
+            if (!registrations.Remove(trigger))
             {
                 return false;
             }
@@ -960,14 +952,15 @@ namespace UnityEngine.UI
             return false;
         }
 
-        private static bool IsTriggerAvailable(IHotkeyTrigger trigger)
+        private static bool IsTriggerAvailable(HotkeyComponentBase trigger)
         {
             if (trigger == null)
             {
                 return false;
             }
 
-            if (trigger is Component component)
+            Component component = trigger;
+            if (component != null)
             {
                 if (component == null || !component.gameObject.activeInHierarchy)
                 {
@@ -1147,7 +1140,7 @@ namespace UnityEngine.UI
             }
         }
 
-        private static void AddDestroyScopeTrigger(IHotkeyTrigger trigger)
+        private static void AddDestroyScopeTrigger(HotkeyComponentBase trigger)
         {
             if (_destroyScopeTriggerCount == _destroyScopeTriggers.Length)
             {
@@ -1160,7 +1153,7 @@ namespace UnityEngine.UI
 
 #if UNITY_EDITOR
         private static void WarnIfObservingDisabledAction(
-            IHotkeyTrigger trigger,
+            HotkeyComponentBase trigger,
             InputAction action,
             EHotkeyActionOwnershipMode ownershipMode)
         {
@@ -1178,22 +1171,24 @@ namespace UnityEngine.UI
             HotkeyScope scope,
             InputAction action,
             EHotkeyPressType pressType,
-            IHotkeyTrigger registeredTrigger,
-            IHotkeyTrigger rejectedTrigger)
+            HotkeyComponentBase registeredTrigger,
+            HotkeyComponentBase rejectedTrigger)
         {
             string actionName = action != null ? action.name : "<null>";
             string holderName = scope.Holder != null ? scope.Holder.name : "<null>";
             string registeredName = GetTriggerGameObjectName(registeredTrigger);
             string rejectedName = GetTriggerGameObjectName(rejectedTrigger);
             Log.Warning(
-                $"{rejectedName} repeated hotkey registration for {actionName} on holder {holderName} ({pressType}). Existing registration on {registeredName} keeps working; duplicate registration is ignored.");
+                $"{rejectedName} repeated hotkey registration for {actionName} on holder {holderName} ({pressType}). "
+                + $"Existing registration on {registeredName} keeps working; duplicate registration is ignored. "
+                + "Disable the previous widget or component before registering another hotkey for the same holder, action, and press type.");
         }
 
-        private static string GetTriggerGameObjectName(IHotkeyTrigger trigger)
+        private static string GetTriggerGameObjectName(HotkeyComponentBase trigger)
         {
-            if (trigger is Component component && component != null)
+            if (trigger != null)
             {
-                return component.gameObject.name;
+                return trigger.gameObject.name;
             }
 
             return trigger != null ? trigger.ToString() : "<null>";
@@ -1214,7 +1209,7 @@ namespace UnityEngine.UI
     public static class UXHotkeyExtension
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static void BindHotKey(this IHotkeyTrigger trigger)
+        public static void BindHotKey(this HotkeyComponentBase trigger)
         {
             InputActionReference action = trigger?.HotkeyAction;
             if (action == null)
@@ -1231,17 +1226,17 @@ namespace UnityEngine.UI
                 return;
             }
 
-            UXHotkeyRegisterManager.RegisterHotkey(trigger, holder, action, trigger.HotkeyPressType);
+            UXHotkeySystem.RegisterHotkey(trigger, holder, action, trigger.HotkeyPressType);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static void UnBindHotKey(this IHotkeyTrigger trigger)
+        public static void UnBindHotKey(this HotkeyComponentBase trigger)
         {
-            UXHotkeyRegisterManager.UnregisterHotkey(trigger);
+            UXHotkeySystem.UnregisterHotkey(trigger);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static void BindHotKeyBatch(this IHotkeyTrigger[] triggers)
+        public static void BindHotKeyBatch(this HotkeyComponentBase[] triggers)
         {
             if (triggers == null)
             {
@@ -1255,7 +1250,7 @@ namespace UnityEngine.UI
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static void UnBindHotKeyBatch(this IHotkeyTrigger[] triggers)
+        public static void UnBindHotKeyBatch(this HotkeyComponentBase[] triggers)
         {
             if (triggers == null)
             {

@@ -1,6 +1,6 @@
 #if INPUTSYSTEM_SUPPORT
 using System;
-using System.Threading.Tasks;
+using System.Collections.Generic;
 using AlicizaX;
 using TMPro;
 using UnityEngine;
@@ -31,6 +31,8 @@ public sealed class TestRebindScript : MonoBehaviour
     [SerializeField] private bool autoConfirm;
 
     private bool _isConfirming;
+    private bool _hasPendingChange;
+    private RebindChange _pendingChange;
 
     private void OnEnable()
     {
@@ -54,13 +56,13 @@ public sealed class TestRebindScript : MonoBehaviour
             resetButton.onClick.AddListener(ResetToDefault);
         }
 
-        InputDeviceWatcher.OnDeviceContextChanged += OnDeviceContextChanged;
-        InputBindingManager.BindingsChanged += OnBindingsChanged;
-        InputBindingManager.OnRebindPrepare += OnRebindPrepare;
-        InputBindingManager.OnRebindStart += OnRebindStart;
-        InputBindingManager.OnRebindEnd += OnRebindEnd;
-        InputBindingManager.OnRebindConflict += OnRebindConflict;
-        InputBindingManager.OnApply += OnApply;
+        UXInput.Watch.OnContextChanged += OnDeviceContextChanged;
+        UXInput.Rebind.OnBindingsChanged += OnBindingsChanged;
+        UXInput.Rebind.OnRebindPrepared += OnRebindPrepare;
+        UXInput.Rebind.OnRebindStarted += OnRebindStart;
+        UXInput.Rebind.OnRebindEnded += OnRebindEnd;
+        UXInput.Rebind.OnBindingConflict += OnRebindConflict;
+        UXInput.Rebind.OnApply += OnApply;
 
         RefreshView();
     }
@@ -87,13 +89,13 @@ public sealed class TestRebindScript : MonoBehaviour
             resetButton.onClick.RemoveListener(ResetToDefault);
         }
 
-        InputDeviceWatcher.OnDeviceContextChanged -= OnDeviceContextChanged;
-        InputBindingManager.BindingsChanged -= OnBindingsChanged;
-        InputBindingManager.OnRebindPrepare -= OnRebindPrepare;
-        InputBindingManager.OnRebindStart -= OnRebindStart;
-        InputBindingManager.OnRebindEnd -= OnRebindEnd;
-        InputBindingManager.OnRebindConflict -= OnRebindConflict;
-        InputBindingManager.OnApply -= OnApply;
+        UXInput.Watch.OnContextChanged -= OnDeviceContextChanged;
+        UXInput.Rebind.OnBindingsChanged -= OnBindingsChanged;
+        UXInput.Rebind.OnRebindPrepared -= OnRebindPrepare;
+        UXInput.Rebind.OnRebindStarted -= OnRebindStart;
+        UXInput.Rebind.OnRebindEnded -= OnRebindEnd;
+        UXInput.Rebind.OnBindingConflict -= OnRebindConflict;
+        UXInput.Rebind.OnApply -= OnApply;
     }
 
     private void StartRebind()
@@ -105,26 +107,36 @@ public sealed class TestRebindScript : MonoBehaviour
             return;
         }
 
-        InputBindingManager.StartRebind(resolvedActionName, NormalizeCompositePartName());
+        string partName = NormalizeCompositePartName();
+        bool started = string.IsNullOrEmpty(partName)
+            ? UXInput.Rebind.BeginRebind(resolvedActionName)
+            : UXInput.Rebind.BeginCompositePartRebind(resolvedActionName, partName);
+
+        if (!started)
+        {
+            SetStatus("Failed to start rebind.");
+            RefreshButtons();
+        }
     }
 
-    private async void ConfirmPrepared()
+    private void ConfirmPrepared()
     {
-        await ConfirmPreparedAsync();
+        ConfirmPreparedInternal();
     }
 
     private void DiscardPrepared()
     {
-        InputBindingManager.DiscardPrepared();
+        UXInput.Rebind.DiscardPrepared();
+        _hasPendingChange = false;
         RefreshView();
     }
 
-    private async void ResetToDefault()
+    private void ResetToDefault()
     {
-        await ResetToDefaultAsync();
+        ResetToDefaultInternal();
     }
 
-    private void OnDeviceContextChanged(InputGlyphContext context)
+    private void OnDeviceContextChanged(UXInput.Watch.InputContext context)
     {
         RefreshView();
     }
@@ -140,16 +152,18 @@ public sealed class TestRebindScript : MonoBehaviour
         SetButtonsInteractable(false);
     }
 
-    private void OnRebindPrepare(InputBindingManager.RebindContext context)
+    private void OnRebindPrepare(RebindChange change)
     {
-        if (!IsTargetContext(context))
+        if (!IsTargetChange(change))
         {
             return;
         }
 
+        _pendingChange = change;
+        _hasPendingChange = true;
         if (bindingText != null)
         {
-            bindingText.text = GetDisplayNameForOverridePath(context.OverridePath);
+            bindingText.text = GetDisplayNameForOverridePath(change.OverridePath);
         }
 
         SetStatus("Pending apply.");
@@ -157,13 +171,13 @@ public sealed class TestRebindScript : MonoBehaviour
 
         if (autoConfirm)
         {
-            _ = ConfirmPreparedAsync();
+            ConfirmPreparedInternal();
         }
     }
 
-    private void OnRebindEnd(bool completed, InputBindingManager.RebindContext context)
+    private void OnRebindEnd(bool completed, RebindChange change)
     {
-        if (context != null && !IsTargetContext(context))
+        if (change.IsValid && !IsTargetChange(change))
         {
             RefreshView();
             return;
@@ -179,10 +193,10 @@ public sealed class TestRebindScript : MonoBehaviour
     }
 
     private void OnRebindConflict(
-        InputBindingManager.RebindContext prepared,
-        InputBindingManager.RebindContext conflict)
+        RebindChange prepared,
+        IReadOnlyList<RebindChange> conflicts)
     {
-        if (!IsTargetContext(prepared) && !IsTargetContext(conflict))
+        if (!IsTargetChange(prepared) && !ContainsTargetChange(conflicts))
         {
             return;
         }
@@ -191,19 +205,20 @@ public sealed class TestRebindScript : MonoBehaviour
         RefreshView();
     }
 
-    private void OnApply(bool applied, InputBindingManager.RebindContext[] contexts)
+    private void OnApply(bool applied, IReadOnlyList<RebindChange> changes)
     {
-        if (!ContainsTargetContext(contexts))
+        if (!ContainsTargetChange(changes))
         {
             RefreshButtons();
             return;
         }
 
+        _hasPendingChange = false;
         SetStatus(applied ? "Binding applied." : "Pending binding discarded.");
         RefreshView();
     }
 
-    private async Task<bool> ConfirmPreparedAsync()
+    private bool ConfirmPreparedInternal()
     {
         if (_isConfirming)
         {
@@ -215,7 +230,7 @@ public sealed class TestRebindScript : MonoBehaviour
 
         try
         {
-            bool applied = await InputBindingManager.ConfirmApply();
+            bool applied = UXInput.Rebind.ConfirmApply();
             if (!applied)
             {
                 SetStatus("No pending binding.");
@@ -236,14 +251,31 @@ public sealed class TestRebindScript : MonoBehaviour
         }
     }
 
-    private async Task ResetToDefaultAsync()
+    private void ResetToDefaultInternal()
     {
         SetButtonsInteractable(false);
 
         try
         {
-            await InputBindingManager.ResetToDefaultAsync();
-            SetStatus("Bindings reset.");
+            InputAction action = ResolveAction();
+            if (action == null)
+            {
+                SetStatus("Action is not configured.");
+                return;
+            }
+
+            string partName = NormalizeCompositePartName();
+            if (string.IsNullOrEmpty(partName))
+            {
+                UXInput.Rebind.ResetBinding(action);
+            }
+            else
+            {
+                UXInput.Rebind.ResetCompositePartBinding(action, partName);
+            }
+
+            _hasPendingChange = false;
+            SetStatus("Binding reset.");
         }
         catch (Exception exception)
         {
@@ -260,8 +292,6 @@ public sealed class TestRebindScript : MonoBehaviour
     {
         InputAction action = ResolveAction();
         string partName = NormalizeCompositePartName();
-        InputGlyphContext context = InputDeviceWatcher.CurrentContext;
-
         if (action == null)
         {
             if (bindingText != null)
@@ -282,15 +312,15 @@ public sealed class TestRebindScript : MonoBehaviour
 
         if (bindingText != null)
         {
-            string displayName = TryGetPendingTargetContext(out InputBindingManager.RebindContext pendingContext)
-                ? GetDisplayNameForOverridePath(pendingContext.OverridePath)
-                : InputGlyphService.GetDisplayNameFromInputAction(action, partName, context);
+            string displayName = _hasPendingChange && IsTargetChange(_pendingChange)
+                ? GetDisplayNameForOverridePath(_pendingChange.OverridePath)
+                : UXInput.Glyph.GetDisplayNameFromInputAction(action, partName);
             bindingText.text = string.IsNullOrEmpty(displayName) ? "<unbound>" : displayName;
         }
 
         if (bindingIcon != null)
         {
-            bool hasSprite = InputGlyphService.TryGetUISpriteForActionPath(action, partName, context, out Sprite sprite);
+            bool hasSprite = UXInput.Glyph.TryGetUISpriteForActionPath(action, partName, out Sprite sprite);
             bindingIcon.sprite = hasSprite ? sprite : null;
             bindingIcon.enabled = hasSprite;
         }
@@ -305,7 +335,7 @@ public sealed class TestRebindScript : MonoBehaviour
 
     private void SetButtonsInteractable(bool interactable)
     {
-        bool hasPending = InputBindingManager.PreparedRebindCount > 0;
+        bool hasPending = _hasPendingChange && UXInput.Rebind.HasPreparedRebinds;
 
         if (rebindButton != null)
         {
@@ -343,7 +373,7 @@ public sealed class TestRebindScript : MonoBehaviour
             return actionReference.action;
         }
 
-        return InputActionResolver.TryGetAction(actionName, out InputAction action) ? action : null;
+        return InputActionProvider.TryResolveAction(actionName, out InputAction action) ? action : null;
     }
 
     private string ResolveActionName()
@@ -369,64 +399,36 @@ public sealed class TestRebindScript : MonoBehaviour
             return "<cleared>";
         }
 
-        string displayName = InputGlyphService.GetDisplayNameFromControlPath(overridePath);
+        string displayName = UXInput.Glyph.GetDisplayNameFromControlPath(overridePath);
         return string.IsNullOrEmpty(displayName) ? overridePath : displayName;
     }
 
-    private bool TryGetPendingTargetContext(out InputBindingManager.RebindContext context)
+    private bool IsTargetChange(RebindChange change)
     {
-        for (int i = 0; i < InputBindingManager.PreparedRebindCount; i++)
-        {
-            InputBindingManager.RebindContext candidate = InputBindingManager.PreparedRebinds[i];
-            if (IsTargetContext(candidate))
-            {
-                context = candidate;
-                return true;
-            }
-        }
-
-        context = null;
-        return false;
-    }
-
-    private bool IsTargetContext(InputBindingManager.RebindContext context)
-    {
-        if (context == null || context.Action == null)
+        if (!change.IsValid || change.Action == null)
         {
             return false;
         }
 
         InputAction targetAction = ResolveAction();
-        if (targetAction == null || context.Action.id != targetAction.id)
+        if (targetAction == null || change.Action.id != targetAction.id)
         {
             return false;
         }
 
-        string partName = NormalizeCompositePartName();
-        if (string.IsNullOrEmpty(partName))
-        {
-            return true;
-        }
-
-        if (context.BindingIndex < 0 || context.BindingIndex >= targetAction.bindings.Count)
-        {
-            return false;
-        }
-
-        InputBinding binding = targetAction.bindings[context.BindingIndex];
-        return string.Equals(binding.name, partName, StringComparison.OrdinalIgnoreCase);
+        return true;
     }
 
-    private bool ContainsTargetContext(InputBindingManager.RebindContext[] contexts)
+    private bool ContainsTargetChange(IReadOnlyList<RebindChange> changes)
     {
-        if (contexts == null)
+        if (changes == null)
         {
             return false;
         }
 
-        for (int i = 0; i < contexts.Length; i++)
+        for (int i = 0; i < changes.Count; i++)
         {
-            if (IsTargetContext(contexts[i]))
+            if (IsTargetChange(changes[i]))
             {
                 return true;
             }

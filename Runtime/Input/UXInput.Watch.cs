@@ -1,8 +1,5 @@
 #if INPUTSYSTEM_SUPPORT
 using System;
-#if UNITY_EDITOR
-using UnityEditor;
-#endif
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.Controls;
@@ -44,8 +41,7 @@ public static partial class UXInput
         public static event Action<InputType> OnInputTypeChanged;
         public static event Action<InputProfile> OnInputProfileChanged;
 
-        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
-        public static void Initialize()
+        internal static void Initialize()
         {
             if (_initialized)
             {
@@ -63,23 +59,15 @@ public static partial class UXInput
             _initialDeviceProbeFramesRemaining = InitialDeviceProbeFrames;
             InputSystem.onAfterUpdate -= OnAfterInputUpdate;
             InputSystem.onAfterUpdate += OnAfterInputUpdate;
-
-#if UNITY_EDITOR
-            EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
-            EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
-#endif
         }
 
-        public static void Dispose()
+        internal static void Shutdown(bool clearEventListeners = false)
         {
             if (!_initialized)
             {
                 return;
             }
 
-#if UNITY_EDITOR
-            EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
-#endif
             InputSystem.onDeviceChange -= OnDeviceChange;
             InputSystem.onAfterUpdate -= OnAfterInputUpdate;
 
@@ -91,7 +79,7 @@ public static partial class UXInput
                 _anyInputAction = null;
             }
 
-            ResetStaticState(true);
+            ResetStaticState(clearEventListeners);
         }
 
         public static InputContext BuildContext(InputDevice device)
@@ -243,16 +231,6 @@ public static partial class UXInput
                 InputSystem.onAfterUpdate -= OnAfterInputUpdate;
             }
         }
-
-#if UNITY_EDITOR
-        private static void OnPlayModeStateChanged(PlayModeStateChange state)
-        {
-            if (state == PlayModeStateChange.ExitingPlayMode || state == PlayModeStateChange.EnteredEditMode)
-            {
-                Dispose();
-            }
-        }
-#endif
 
         private static void SetCurrentContext(InputContext context, bool forceEmit = false)
         {

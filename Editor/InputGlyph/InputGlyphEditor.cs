@@ -9,7 +9,7 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
-[CustomEditor(typeof(InputGlyphComponent))]
+[CustomEditor(typeof(InputGlyphBehaviourBase), true)]
 [CanEditMultipleObjects]
 public sealed class InputGlyphEditor : Editor
 {
@@ -22,22 +22,28 @@ public sealed class InputGlyphEditor : Editor
 
     private static readonly string[] ProfileIdOptions =
     {
-        InputGlyphProfileIds.KeyboardMouse,
-        InputGlyphProfileIds.GenericGamepad,
-        InputGlyphProfileIds.Xbox,
-        InputGlyphProfileIds.PlayStation,
-        InputGlyphProfileIds.Switch,
-        InputGlyphProfileIds.SteamDeck,
+        UXInput.Watch.InputProfile.KeyboardMouse.ToString(),
+        UXInput.Watch.InputProfile.GenericGamepad.ToString(),
+        UXInput.Watch.InputProfile.GenericJoystick.ToString(),
+        UXInput.Watch.InputProfile.Xbox.ToString(),
+        UXInput.Watch.InputProfile.PlayStation.ToString(),
+        UXInput.Watch.InputProfile.Switch.ToString(),
+        UXInput.Watch.InputProfile.SteamDeck.ToString(),
+        UXInput.Watch.InputProfile.SteamController.ToString(),
+        UXInput.Watch.InputProfile.Touch.ToString(),
     };
 
     private static readonly string[] ProfileDisplayOptions =
     {
         "Keyboard & Mouse",
         "Generic Gamepad",
+        "Generic Joystick",
         "Xbox",
         "PlayStation",
         "Switch",
         "Steam Deck",
+        "Steam Controller",
+        "Touch",
     };
 
     private static readonly List<InputActionAsset> CachedActionAssets = new List<InputActionAsset>(16);
@@ -53,7 +59,6 @@ public sealed class InputGlyphEditor : Editor
     private SerializedProperty _hotkeyTrigger;
     private SerializedProperty _actionName;
     private SerializedProperty _compositePartName;
-    private SerializedProperty _outputMode;
     private SerializedProperty _targetImage;
     private SerializedProperty _targetText;
     private SerializedProperty _profileEvents;
@@ -78,7 +83,6 @@ public sealed class InputGlyphEditor : Editor
         _hotkeyTrigger = serializedObject.FindProperty("hotkeyTrigger");
         _actionName = serializedObject.FindProperty("actionName");
         _compositePartName = serializedObject.FindProperty("compositePartName");
-        _outputMode = serializedObject.FindProperty("outputMode");
         _targetImage = serializedObject.FindProperty("targetImage");
         _targetText = serializedObject.FindProperty("targetText");
         _profileEvents = serializedObject.FindProperty("profileEvents");
@@ -145,29 +149,29 @@ public sealed class InputGlyphEditor : Editor
 
     private void DrawSourceFields()
     {
-        InputGlyphComponent.ActionSourceMode mode = (InputGlyphComponent.ActionSourceMode)_actionSourceMode.enumValueIndex;
+        InputGlyphBehaviourBase.ActionSourceMode mode = (InputGlyphBehaviourBase.ActionSourceMode)_actionSourceMode.enumValueIndex;
         switch (mode)
         {
-            case InputGlyphComponent.ActionSourceMode.ActionReference:
+            case InputGlyphBehaviourBase.ActionSourceMode.ActionReference:
                 DrawPropertyRow("Action Reference", _actionReference);
                 EditorUtils.TrHelpIconText("Use a direct InputActionReference.", MessageType.None);
                 break;
 
-            case InputGlyphComponent.ActionSourceMode.HotkeyTrigger:
+            case InputGlyphBehaviourBase.ActionSourceMode.HotkeyTrigger:
                 DrawPropertyRow("Hotkey Trigger", _hotkeyTrigger);
                 Component component = _hotkeyTrigger.objectReferenceValue as Component;
-                if (component != null && !(component is IHotkeyTrigger))
+                if (component != null && !(component is HotkeyComponentBase))
                 {
-                    EditorUtils.TrHelpIconText("Hotkey Trigger must implement IHotkeyTrigger.", MessageType.Warning);
+                    EditorUtils.TrHelpIconText("Hotkey Trigger must inherit HotkeyComponentBase.", MessageType.Warning);
                 }
                 else
                 {
-                    EditorUtils.TrHelpIconText("Reads the action from an external IHotkeyTrigger component.", MessageType.None);
+                    EditorUtils.TrHelpIconText("Reads the action from an external HotkeyComponentBase component.", MessageType.None);
                 }
 
                 break;
 
-            case InputGlyphComponent.ActionSourceMode.ActionName:
+            case InputGlyphBehaviourBase.ActionSourceMode.ActionName:
                 DrawPropertyRow("Action Name", _actionName);
                 EditorGUILayout.BeginHorizontal(_fieldRowStyle);
                 GUILayout.FlexibleSpace();
@@ -185,32 +189,33 @@ public sealed class InputGlyphEditor : Editor
     private void DrawOutputSection()
     {
         DrawSectionBegin("Output");
-        DrawEnumPropertyRow("Render Mode", _outputMode);
         DrawOutputFields();
         DrawSectionEnd();
     }
 
     private void DrawOutputFields()
     {
-        InputGlyphComponent.OutputMode mode = (InputGlyphComponent.OutputMode)_outputMode.enumValueIndex;
-        switch (mode)
+        if (_targetImage != null)
         {
-            case InputGlyphComponent.OutputMode.Image:
-                DrawPropertyRow("Target Image", _targetImage);
-                EditorUtils.TrHelpIconText("Shows the resolved sprite on a Unity UI Image.", MessageType.None);
-                break;
-
-            case InputGlyphComponent.OutputMode.Text:
-                DrawPropertyRow("Target TMP Text", _targetText);
-                EditorUtils.TrHelpIconText("Uses the current TMP text as a template and replaces {0}.", MessageType.None);
-                TMP_Text text = _targetText.objectReferenceValue as TMP_Text;
-                if (text == null)
-                {
-                    EditorUtils.TrHelpIconText("If TMP_Text is empty, the component tries GetComponent<TMP_Text>().", MessageType.None);
-                }
-
-                break;
+            DrawPropertyRow("Target Image", _targetImage);
+            EditorUtils.TrHelpIconText("Shows the resolved sprite on a Unity UI Image.", MessageType.None);
+            return;
         }
+
+        if (_targetText != null)
+        {
+            DrawPropertyRow("Target TMP Text", _targetText);
+            EditorUtils.TrHelpIconText("Uses the current TMP text as a template and replaces {0}.", MessageType.None);
+            TMP_Text text = _targetText.objectReferenceValue as TMP_Text;
+            if (text == null)
+            {
+                EditorUtils.TrHelpIconText("If TMP_Text is empty, the component tries GetComponent<TMP_Text>().", MessageType.None);
+            }
+
+            return;
+        }
+
+        EditorUtils.TrHelpIconText("This glyph component has no render target field.", MessageType.Warning);
     }
 
     private void DrawEventsSection()
@@ -353,7 +358,7 @@ public sealed class InputGlyphEditor : Editor
         int selectedIndex = 0;
         for (int i = 0; i < ProfileIdOptions.Length; i++)
         {
-            if (InputGlyphStringUtility.EqualsOrdinal(ProfileIdOptions[i], profileIdProp.stringValue))
+            if (string.Equals(ProfileIdOptions[i], profileIdProp.stringValue, StringComparison.Ordinal))
             {
                 selectedIndex = i;
                 break;
@@ -477,7 +482,7 @@ public sealed class InputGlyphEditor : Editor
         _profileEvents.InsertArrayElementAtIndex(index);
 
         SerializedProperty eventProp = _profileEvents.GetArrayElementAtIndex(index);
-        eventProp.FindPropertyRelative("profileId").stringValue = InputGlyphProfileIds.KeyboardMouse;
+        eventProp.FindPropertyRelative("profileId").stringValue = UXInput.Watch.InputProfile.KeyboardMouse.ToString();
         ClearUnityEvent(eventProp.FindPropertyRelative("onMatched"));
         ClearUnityEvent(eventProp.FindPropertyRelative("onNotMatched"));
 
@@ -571,23 +576,23 @@ public sealed class InputGlyphEditor : Editor
 
     private InputAction ResolveSelectedAction()
     {
-        InputGlyphComponent.ActionSourceMode mode = (InputGlyphComponent.ActionSourceMode)_actionSourceMode.enumValueIndex;
+        InputGlyphBehaviourBase.ActionSourceMode mode = (InputGlyphBehaviourBase.ActionSourceMode)_actionSourceMode.enumValueIndex;
         switch (mode)
         {
-            case InputGlyphComponent.ActionSourceMode.ActionReference:
+            case InputGlyphBehaviourBase.ActionSourceMode.ActionReference:
                 InputActionReference actionReference = _actionReference.objectReferenceValue as InputActionReference;
                 return actionReference != null ? actionReference.action : null;
 
-            case InputGlyphComponent.ActionSourceMode.HotkeyTrigger:
+            case InputGlyphBehaviourBase.ActionSourceMode.HotkeyTrigger:
                 Component component = _hotkeyTrigger.objectReferenceValue as Component;
-                if (component is IHotkeyTrigger trigger && trigger.HotkeyAction != null)
+                if (component is HotkeyComponentBase trigger && trigger.HotkeyAction != null)
                 {
                     return trigger.HotkeyAction.action;
                 }
 
                 return null;
 
-            case InputGlyphComponent.ActionSourceMode.ActionName:
+            case InputGlyphBehaviourBase.ActionSourceMode.ActionName:
                 return ResolveActionByName(_actionName.stringValue);
 
             default:
@@ -637,16 +642,6 @@ public sealed class InputGlyphEditor : Editor
 
         _actionAssetCacheDirty = false;
         CachedActionAssets.Clear();
-        InputActionProvider[] providers = Resources.FindObjectsOfTypeAll<InputActionProvider>();
-        for (int i = 0; i < providers.Length; i++)
-        {
-            InputActionAsset asset = providers[i] != null ? providers[i].Actions : null;
-            if (asset != null && !CachedActionAssets.Contains(asset))
-            {
-                CachedActionAssets.Add(asset);
-            }
-        }
-
         string[] guids = AssetDatabase.FindAssets("t:InputActionAsset");
         for (int i = 0; i < guids.Length; i++)
         {
