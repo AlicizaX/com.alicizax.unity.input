@@ -7,6 +7,9 @@ using UnityEngine.InputSystem;
 
 public static partial class UXInput
 {
+    /// <summary>
+    /// 输入图标查询工具，负责根据当前输入设备 Profile、动作绑定或控制路径解析 UI 图标、TMP Sprite 标签和显示文本。
+    /// </summary>
     public static class Glyph
     {
         private const int InitialCacheCapacity = 64;
@@ -22,6 +25,9 @@ public static partial class UXInput
 
         private static InputGlyphDatabase _database;
 
+        /// <summary>
+        /// 获取当前输入设备对应的图标 Profile ID。
+        /// </summary>
         public static string CurrentProfileId
         {
             get
@@ -30,6 +36,10 @@ public static partial class UXInput
             }
         }
 
+        /// <summary>
+        /// 设置当前全局使用的输入图标数据库，并清空图标查询缓存。
+        /// </summary>
+        /// <param name="database">要设置为当前全局数据源的输入图标数据库；传入 null 时清空当前数据源。</param>
         public static void SetDatabase(InputGlyphDatabase database)
         {
             _database = database;
@@ -38,6 +48,12 @@ public static partial class UXInput
             SpriteTagCache.Clear();
         }
 
+        /// <summary>
+        /// 获取指定输入动作在当前输入 Profile 下最匹配绑定的有效控制路径。
+        /// </summary>
+        /// <param name="action">要查询绑定路径的输入动作。</param>
+        /// <param name="compositePartName">可选的组合绑定部分名称；为空时查询普通绑定。</param>
+        /// <returns>匹配绑定的有效控制路径；未找到匹配绑定时返回空字符串。</returns>
         public static string GetBindingControlPath(InputAction action, string compositePartName = null)
         {
             return TryGetBindingControl(action, compositePartName, out InputBinding binding)
@@ -45,65 +61,101 @@ public static partial class UXInput
                 : string.Empty;
         }
 
+        /// <summary>
+        /// 获取指定输入动作引用在当前输入 Profile 下最匹配绑定的有效控制路径。
+        /// </summary>
+        /// <param name="actionReference">要查询绑定路径的输入动作引用。</param>
+        /// <param name="compositePartName">可选的组合绑定部分名称；为空时查询普通绑定。</param>
+        /// <returns>匹配绑定的有效控制路径；引用为空或未找到匹配绑定时返回空字符串。</returns>
         public static string GetBindingControlPath(InputActionReference actionReference, string compositePartName = null)
         {
             return GetBindingControlPath(actionReference != null ? actionReference.action : null, compositePartName);
         }
 
+        /// <summary>
+        /// 根据输入动作在当前输入 Profile 下的匹配绑定，尝试获取 TMP Sprite 标签。
+        /// </summary>
+        /// <param name="action">要查询图标的输入动作。</param>
+        /// <param name="compositePartName">可选的组合绑定部分名称；为空时查询普通绑定。</param>
+        /// <param name="tag">输出 TMP Sprite 标签，例如 &lt;sprite name="A"&gt;；查询失败时为 null。</param>
+        /// <param name="displayFallback">输出绑定的文本显示名，用于图标缺失时回退显示。</param>
+        /// <returns>成功解析 TMP Sprite 标签时返回 true，否则返回 false。</returns>
         public static bool TryGetTMPTagForActionPath(
             InputAction action,
             string compositePartName,
             out string tag,
-            out string displayFallback,
-            InputGlyphDatabase database = null)
+            out string displayFallback)
         {
             string controlPath = GetBindingControlPath(action, compositePartName);
-            return TryGetTMPTagForControlPath(controlPath, out tag, out displayFallback, database);
+            return TryGetTMPTagForControlPath(controlPath, out tag, out displayFallback);
         }
 
+        /// <summary>
+        /// 根据输入动作引用在当前输入 Profile 下的匹配绑定，尝试获取 TMP Sprite 标签。
+        /// </summary>
+        /// <param name="actionReference">要查询图标的输入动作引用。</param>
+        /// <param name="compositePartName">可选的组合绑定部分名称；为空时查询普通绑定。</param>
+        /// <param name="tag">输出 TMP Sprite 标签，例如 &lt;sprite name="A"&gt;；查询失败时为 null。</param>
+        /// <param name="displayFallback">输出绑定的文本显示名，用于图标缺失时回退显示。</param>
+        /// <returns>成功解析 TMP Sprite 标签时返回 true，否则返回 false。</returns>
         public static bool TryGetTMPTagForActionPath(
             InputActionReference actionReference,
             string compositePartName,
             out string tag,
-            out string displayFallback,
-            InputGlyphDatabase database = null)
+            out string displayFallback)
         {
             return TryGetTMPTagForActionPath(
                 actionReference != null ? actionReference.action : null,
                 compositePartName,
                 out tag,
-                out displayFallback,
-                database);
+                out displayFallback);
         }
 
+        /// <summary>
+        /// 根据输入动作在当前输入 Profile 下的匹配绑定，尝试获取 UI Sprite 图标。
+        /// </summary>
+        /// <param name="action">要查询图标的输入动作。</param>
+        /// <param name="compositePartName">可选的组合绑定部分名称；为空时查询普通绑定。</param>
+        /// <param name="sprite">输出匹配的 UI Sprite 图标；查询失败时为 null。</param>
+        /// <returns>成功解析 UI Sprite 图标时返回 true，否则返回 false。</returns>
         public static bool TryGetUISpriteForActionPath(
             InputAction action,
             string compositePartName,
-            out Sprite sprite,
-            InputGlyphDatabase database = null)
+            out Sprite sprite)
         {
             string controlPath = GetBindingControlPath(action, compositePartName);
-            return TryGetUISpriteForControlPath(controlPath, out sprite, database);
+            return TryGetUISpriteForControlPath(controlPath, out sprite);
         }
 
+        /// <summary>
+        /// 根据输入动作引用在当前输入 Profile 下的匹配绑定，尝试获取 UI Sprite 图标。
+        /// </summary>
+        /// <param name="actionReference">要查询图标的输入动作引用。</param>
+        /// <param name="compositePartName">可选的组合绑定部分名称；为空时查询普通绑定。</param>
+        /// <param name="sprite">输出匹配的 UI Sprite 图标；查询失败时为 null。</param>
+        /// <returns>成功解析 UI Sprite 图标时返回 true，否则返回 false。</returns>
         public static bool TryGetUISpriteForActionPath(
             InputActionReference actionReference,
             string compositePartName,
-            out Sprite sprite,
-            InputGlyphDatabase database = null)
+            out Sprite sprite)
         {
             return TryGetUISpriteForActionPath(
                 actionReference != null ? actionReference.action : null,
                 compositePartName,
-                out sprite,
-                database);
+                out sprite);
         }
 
+        /// <summary>
+        /// 根据控制路径和当前输入 Profile，尝试获取 TMP Sprite 标签。
+        /// </summary>
+        /// <param name="controlPath">Unity Input System 控制路径，例如 &lt;Gamepad&gt;/buttonSouth。</param>
+        /// <param name="tag">输出 TMP Sprite 标签，例如 &lt;sprite name="A"&gt;；查询失败时为 null。</param>
+        /// <param name="displayFallback">输出控制路径的人类可读显示名，用于图标缺失时回退显示。</param>
+        /// <returns>成功解析 TMP Sprite 标签时返回 true，否则返回 false。</returns>
         public static bool TryGetTMPTagForControlPath(
             string controlPath,
             out string tag,
-            out string displayFallback,
-            InputGlyphDatabase database = null)
+            out string displayFallback)
         {
             displayFallback = GetDisplayNameFromControlPath(controlPath);
             tag = null;
@@ -114,13 +166,12 @@ public static partial class UXInput
                 return false;
             }
 
-            database = database != null ? database : _database;
-            if (database == null)
+            if (_database == null)
             {
                 return false;
             }
 
-            if (!database.TryGetGlyph(CurrentProfileId, glyphKey, out Sprite sprite, out string spriteName))
+            if (!_database.TryGetGlyph(CurrentProfileId, glyphKey, out Sprite sprite, out string spriteName))
             {
                 return false;
             }
@@ -129,10 +180,15 @@ public static partial class UXInput
             return tag != null;
         }
 
+        /// <summary>
+        /// 根据控制路径和当前输入 Profile，尝试获取 UI Sprite 图标。
+        /// </summary>
+        /// <param name="controlPath">Unity Input System 控制路径，例如 &lt;Gamepad&gt;/buttonSouth。</param>
+        /// <param name="sprite">输出匹配的 UI Sprite 图标；查询失败时为 null。</param>
+        /// <returns>成功解析 UI Sprite 图标时返回 true，否则返回 false。</returns>
         public static bool TryGetUISpriteForControlPath(
             string controlPath,
-            out Sprite sprite,
-            InputGlyphDatabase database = null)
+            out Sprite sprite)
         {
             sprite = null;
 
@@ -142,10 +198,15 @@ public static partial class UXInput
                 return false;
             }
 
-            database = database != null ? database : _database;
-            return database != null && database.TryGetSprite(CurrentProfileId, glyphKey, out sprite);
+            return _database != null && _database.TryGetSprite(CurrentProfileId, glyphKey, out sprite);
         }
 
+        /// <summary>
+        /// 获取输入动作在当前输入 Profile 下最匹配绑定的显示文本。
+        /// </summary>
+        /// <param name="action">要查询显示文本的输入动作。</param>
+        /// <param name="compositePartName">可选的组合绑定部分名称；为空时查询普通绑定。</param>
+        /// <returns>匹配绑定的人类可读显示文本；未找到匹配绑定时返回空字符串。</returns>
         public static string GetDisplayNameFromInputAction(InputAction action, string compositePartName = null)
         {
             if (!TryGetBindingControl(action, compositePartName, out InputBinding binding))
@@ -157,6 +218,11 @@ public static partial class UXInput
             return string.IsNullOrEmpty(display) ? GetDisplayNameFromControlPath(GetEffectivePath(binding)) : display;
         }
 
+        /// <summary>
+        /// 将 Unity Input System 控制路径转换为人类可读的显示文本。
+        /// </summary>
+        /// <param name="controlPath">Unity Input System 控制路径，例如 &lt;Keyboard&gt;/space。</param>
+        /// <returns>控制路径的人类可读显示文本；控制路径为空时返回空字符串。</returns>
         public static string GetDisplayNameFromControlPath(string controlPath)
         {
             if (string.IsNullOrWhiteSpace(controlPath))
@@ -183,6 +249,13 @@ public static partial class UXInput
             return fallback;
         }
 
+        /// <summary>
+        /// 在输入动作上查找当前输入 Profile 下最匹配的绑定。
+        /// </summary>
+        /// <param name="action">要查询绑定的输入动作。</param>
+        /// <param name="compositePartName">可选的组合绑定部分名称；为空时查询普通绑定。</param>
+        /// <param name="binding">输出匹配到的输入绑定；未找到时为默认值。</param>
+        /// <returns>找到匹配绑定时返回 true，否则返回 false。</returns>
         public static bool TryGetBindingControl(
             InputAction action,
             string compositePartName,
@@ -211,6 +284,11 @@ public static partial class UXInput
             return true;
         }
 
+        /// <summary>
+        /// 将 Unity Input System 控制路径转换为图标数据库使用的图标键。
+        /// </summary>
+        /// <param name="controlPath">Unity Input System 控制路径，例如 &lt;Gamepad&gt;/buttonSouth。</param>
+        /// <returns>图标数据库使用的规范化图标键；控制路径为空或格式无效时返回空字符串。</returns>
         public static string GetGlyphKeyFromControlPath(string controlPath)
         {
             if (string.IsNullOrWhiteSpace(controlPath))
