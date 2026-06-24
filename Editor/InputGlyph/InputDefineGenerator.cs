@@ -209,10 +209,10 @@ internal static class InputDefineCodeGenerator
         builder.AppendLine(".");
         builder.AppendLine("//");
         builder.AppendLine("// 按钮辅助接口说明：");
-        builder.AppendLine("// - 持续：无后缀属性，按钮按住期间每帧为真；值类型输入返回当前向量、浮点数等。");
-        builder.AppendLine("// - 单次：单次方法只在按下当帧为真；松开后再次按下可再次触发。");
-        builder.AppendLine("// - 开关：开关方法每次按下都会切换并保存一个布尔状态。");
-        builder.AppendLine("// - 重置：重置方法用于清除字符串键版本保存的开关状态。");
+        builder.AppendLine("// - Hold：无后缀属性，按钮按住期间每帧为真；值类型输入返回当前向量、浮点数等。");
+        builder.AppendLine("// - Once：单次方法只在按下当帧为真；松开后再次按下可再次触发。");
+        builder.AppendLine("// - Toggle：开关方法每次按下都会切换并保存一个布尔状态。");
+        builder.AppendLine("// - Reset：重置方法用于清除字符串键版本保存的开关状态。");
         builder.AppendLine("// </auto-generated>");
         builder.AppendLine("using AlicizaX;");
         builder.AppendLine("using UnityEngine;");
@@ -304,7 +304,7 @@ internal static class InputDefineCodeGenerator
         builder.AppendLine("{");
         AppendIndent(builder, indent);
         AppendIndent(builder, indent);
-        builder.AppendLine("return InputActionProvider.FindActionMap(mapName, false)");
+        builder.AppendLine("return InputActionProvider.FindActionMap(mapName, false);");
         AppendIndent(builder, indent);
         builder.AppendLine("}");
         builder.AppendLine();
@@ -577,21 +577,21 @@ internal static class InputDefineCodeGenerator
     private static AccessorKind ResolveAccessorKind(InputAction action, out string valueType)
     {
         string expectedType = NormalizeExpectedType(action.expectedControlType);
+        if (action.type == InputActionType.Button)
+        {
+            valueType = "bool";
+            return AccessorKind.Button;
+        }
+
         if (IsButtonExpectedType(expectedType))
         {
             valueType = "bool";
-            return action.type == InputActionType.Button ? AccessorKind.Button : AccessorKind.Pressed;
+            return AccessorKind.Pressed;
         }
 
         if (TryResolveValueType(action, expectedType, out valueType))
         {
             return AccessorKind.Value;
-        }
-
-        if (action.type == InputActionType.Button)
-        {
-            valueType = "bool";
-            return AccessorKind.Button;
         }
 
         valueType = ResolveValueType(action, expectedType);
