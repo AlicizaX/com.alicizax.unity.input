@@ -180,7 +180,7 @@ public static partial class UXInput
                 return false;
             }
 
-            return TryReadValueOnceInternal(action, null, null, owner.GetInstanceID(), null, out value);
+            return TryReadValueOnceInternal(action, null, null, UnityObjectId.Get(owner), null, out value);
         }
 
         /// <summary>
@@ -200,7 +200,7 @@ public static partial class UXInput
             }
 
             InputAction action = ResolveAction(actionName);
-            return TryReadValueOnceInternal(action, actionName, null, owner.GetInstanceID(), null, out value);
+            return TryReadValueOnceInternal(action, actionName, null, UnityObjectId.Get(owner), null, out value);
         }
 
         /// <summary>
@@ -263,7 +263,7 @@ public static partial class UXInput
         /// <returns>动作在当前拥有者状态下本次按下周期首次按下时返回 true，否则返回 false。</returns>
         public static bool ReadPressedOnce(Object owner, InputAction action)
         {
-            return owner != null && ReadPressedOnce(owner.GetInstanceID(), action);
+            return owner != null && ReadPressedOnce(UnityObjectId.Get(owner), action);
         }
 
         /// <summary>
@@ -274,7 +274,7 @@ public static partial class UXInput
         /// <returns>动作在当前拥有者状态下本次按下周期首次按下时返回 true，否则返回 false。</returns>
         public static bool ReadPressedOnce(Object owner, string actionName)
         {
-            return owner != null && ReadPressedOnce(owner.GetInstanceID(), actionName);
+            return owner != null && ReadPressedOnce(UnityObjectId.Get(owner), actionName);
         }
 
         /// <summary>
@@ -331,7 +331,7 @@ public static partial class UXInput
         /// <returns>动作触发后当前缓存的切换状态。</returns>
         public static bool ReadPressedToggle(Object owner, InputAction action)
         {
-            return owner != null && ReadPressedToggle(owner.GetInstanceID(), action);
+            return owner != null && ReadPressedToggle(UnityObjectId.Get(owner), action);
         }
 
         /// <summary>
@@ -342,7 +342,7 @@ public static partial class UXInput
         /// <returns>动作触发后当前缓存的切换状态。</returns>
         public static bool ReadPressedToggle(Object owner, string actionName)
         {
-            return owner != null && ReadPressedToggle(owner.GetInstanceID(), actionName);
+            return owner != null && ReadPressedToggle(UnityObjectId.Get(owner), actionName);
         }
 
         /// <summary>
@@ -399,7 +399,7 @@ public static partial class UXInput
         /// <returns>按钮动作在当前拥有者状态下本次按下周期首次按下时返回 true，否则返回 false。</returns>
         public static bool ReadButtonOnce(Object owner, InputAction action)
         {
-            return owner != null && ReadButtonOnce(owner.GetInstanceID(), action);
+            return owner != null && ReadButtonOnce(UnityObjectId.Get(owner), action);
         }
 
         /// <summary>
@@ -410,7 +410,7 @@ public static partial class UXInput
         /// <returns>按钮动作在当前拥有者状态下本次按下周期首次按下时返回 true，否则返回 false。</returns>
         public static bool ReadButtonOnce(Object owner, string actionName)
         {
-            return owner != null && ReadButtonOnce(owner.GetInstanceID(), actionName);
+            return owner != null && ReadButtonOnce(UnityObjectId.Get(owner), actionName);
         }
 
         /// <summary>
@@ -467,7 +467,7 @@ public static partial class UXInput
         /// <returns>按钮动作触发后当前缓存的切换状态。</returns>
         public static bool ReadButtonToggle(Object owner, InputAction action)
         {
-            return owner != null && ReadButtonToggle(owner.GetInstanceID(), action);
+            return owner != null && ReadButtonToggle( UnityObjectId.Get(owner), action);
         }
 
         /// <summary>
@@ -478,7 +478,7 @@ public static partial class UXInput
         /// <returns>按钮动作触发后当前缓存的切换状态。</returns>
         public static bool ReadButtonToggle(Object owner, string actionName)
         {
-            return owner != null && ReadButtonToggle(owner.GetInstanceID(), actionName);
+            return owner != null && ReadButtonToggle(UnityObjectId.Get(owner), actionName);
         }
 
         /// <summary>
@@ -571,7 +571,7 @@ public static partial class UXInput
         /// <returns>组合绑定部分在当前拥有者状态下本次按下周期首次按下时返回 true，否则返回 false。</returns>
         public static bool ReadCompositePartButtonOnce(Object owner, InputAction action, string compositePartName)
         {
-            return owner != null && ReadCompositePartButtonOnce(owner.GetInstanceID(), action, compositePartName);
+            return owner != null && ReadCompositePartButtonOnce(UnityObjectId.Get(owner), action, compositePartName);
         }
 
         /// <summary>
@@ -583,7 +583,7 @@ public static partial class UXInput
         /// <returns>组合绑定部分在当前拥有者状态下本次按下周期首次按下时返回 true，否则返回 false。</returns>
         public static bool ReadCompositePartButtonOnce(Object owner, string actionName, string compositePartName)
         {
-            return owner != null && ReadCompositePartButtonOnce(owner.GetInstanceID(), actionName, compositePartName);
+            return owner != null && ReadCompositePartButtonOnce(UnityObjectId.Get(owner), actionName, compositePartName);
         }
 
         /// <summary>
@@ -673,7 +673,7 @@ public static partial class UXInput
         /// <returns>组合绑定部分触发后当前缓存的切换状态。</returns>
         public static bool ReadCompositePartButtonToggle(Object owner, InputAction action, string compositePartName)
         {
-            return owner != null && ReadCompositePartButtonToggle(owner.GetInstanceID(), action, compositePartName);
+            return owner != null && ReadCompositePartButtonToggle(UnityObjectId.Get(owner), action, compositePartName);
         }
 
         /// <summary>
@@ -685,7 +685,7 @@ public static partial class UXInput
         /// <returns>组合绑定部分触发后当前缓存的切换状态。</returns>
         public static bool ReadCompositePartButtonToggle(Object owner, string actionName, string compositePartName)
         {
-            return owner != null && ReadCompositePartButtonToggle(owner.GetInstanceID(), actionName, compositePartName);
+            return owner != null && ReadCompositePartButtonToggle(UnityObjectId.Get(owner), actionName, compositePartName);
         }
 
         /// <summary>

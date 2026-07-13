@@ -556,7 +556,7 @@ namespace AlicizaX.UI.UXNavigation
             }
 
             RefreshSelectableHashesIfDirty();
-            int instanceId = selectable.GetInstanceID();
+            int instanceId = UnityObjectId.Get(selectable);
             return FindHashIndex(_bakedSelectableHashIds, _bakedSelectableHashIndices, instanceId) >= 0
                    || FindHashIndex(_runtimeSelectableHashIds, _runtimeSelectableHashIndices, instanceId) >= 0;
         }
@@ -574,7 +574,7 @@ namespace AlicizaX.UI.UXNavigation
             }
 
             RefreshSelectableHashesIfDirty();
-            int instanceId = selectable.GetInstanceID();
+            int instanceId = UnityObjectId.Get(selectable);
             if (FindHashIndex(_bakedSelectableHashIds, _bakedSelectableHashIndices, instanceId) >= 0)
             {
                 return true;
@@ -662,7 +662,7 @@ namespace AlicizaX.UI.UXNavigation
                 Selectable selectable = _bakedSelectables[i];
                 if (selectable != null)
                 {
-                    AddHash(_bakedSelectableHashIds, _bakedSelectableHashIndices, selectable.GetInstanceID(), i);
+                    AddHash(_bakedSelectableHashIds, _bakedSelectableHashIndices, UnityObjectId.Get(selectable), i);
                 }
             }
         }
@@ -675,7 +675,7 @@ namespace AlicizaX.UI.UXNavigation
                 Selectable selectable = _runtimeSelectables[i];
                 if (selectable != null)
                 {
-                    AddHash(_runtimeSelectableHashIds, _runtimeSelectableHashIndices, selectable.GetInstanceID(), i);
+                    AddHash(_runtimeSelectableHashIds, _runtimeSelectableHashIndices, UnityObjectId.Get(selectable), i);
                 }
             }
         }
@@ -784,7 +784,7 @@ namespace AlicizaX.UI.UXNavigation
             }
 
             RefreshSelectableHashesIfDirty();
-            return FindHashIndex(_runtimeSelectableHashIds, _runtimeSelectableHashIndices, selectable.GetInstanceID());
+            return FindHashIndex(_runtimeSelectableHashIds, _runtimeSelectableHashIndices, UnityObjectId.Get(selectable));
         }
 
         private static bool IsSelectableUsable(Selectable selectable)
