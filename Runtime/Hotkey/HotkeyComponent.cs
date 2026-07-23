@@ -33,10 +33,8 @@ namespace UnityEngine.UI
             base.OnEnable();
         }
 
-        protected override void OnApplicationFocus(bool hasFocus)
+        private void OnApplicationFocus(bool hasFocus)
         {
-            base.OnApplicationFocus(hasFocus);
-
             if (hasFocus)
             {
                 CacheEventData();

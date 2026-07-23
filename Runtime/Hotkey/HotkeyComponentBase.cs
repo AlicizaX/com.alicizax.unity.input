@@ -9,7 +9,6 @@ namespace UnityEngine.UI
         [SerializeField] private UIHolderObjectBase _holder;
         [SerializeField] private InputActionReference _hotkeyAction;
         [SerializeField] private EHotkeyPressType _hotkeyPressType = EHotkeyPressType.Performed;
-        [SerializeField] private EHotkeyActionOwnershipMode _hotkeyActionOwnershipMode = EHotkeyActionOwnershipMode.ObserveOnly;
         [SerializeField] private bool _hotkeyConsumesInput = true;
 
         public InputActionReference HotkeyAction
@@ -40,7 +39,6 @@ namespace UnityEngine.UI
         public EHotkeyPressType HotkeyPressType => _hotkeyPressType;
         public UIHolderObjectBase HotkeyHolder => _holder;
         public bool HotkeyConsumesInput => _hotkeyConsumesInput;
-        public EHotkeyActionOwnershipMode HotkeyActionOwnershipMode => _hotkeyActionOwnershipMode;
 
         protected virtual void Reset()
         {
@@ -66,22 +64,6 @@ namespace UnityEngine.UI
         protected virtual void OnDestroy()
         {
             this.UnBindHotKey();
-        }
-
-        protected virtual void OnApplicationFocus(bool hasFocus)
-        {
-            if (!hasFocus)
-            {
-                UXHotkeySystem.ResetTransientState();
-            }
-        }
-
-        protected virtual void OnApplicationPause(bool pauseStatus)
-        {
-            if (pauseStatus)
-            {
-                UXHotkeySystem.ResetTransientState();
-            }
         }
 
 #if UNITY_EDITOR
