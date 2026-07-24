@@ -7,7 +7,7 @@ using UnityEngine.EventSystems;
 using UnityEngine.UI;
 namespace AlicizaX.UI.UXNavigation
 {
-    internal static class UXNavigationSystem
+    public static class UXNavigationSystem
     {
         private const int ScopeCapacity = 128;
         private const int InvalidIndex = -1;
@@ -23,6 +23,58 @@ namespace AlicizaX.UI.UXNavigation
         private static bool _initialized;
         private static bool _gamepadRequireSelection = true;
         private static bool _keyboardRequireSelection;
+
+        /// <summary>
+        /// 手柄/摇杆是否强制至少选中一个可交互控件。默认 true。
+        /// 仅“补选”，不会因为策略关闭而清空已有焦点。
+        /// </summary>
+        public static bool GamepadRequireSelection
+        {
+            get => _gamepadRequireSelection;
+            set
+            {
+                if (_gamepadRequireSelection == value)
+                {
+                    return;
+                }
+
+                _gamepadRequireSelection = value;
+                OnRequireSelectionPolicyChanged();
+            }
+        }
+
+        /// <summary>
+        /// 键鼠是否强制至少选中一个可交互控件。默认 false。
+        /// 仅“补选”，不会因为策略关闭而清空已有焦点。
+        /// </summary>
+        public static bool KeyboardRequireSelection
+        {
+            get => _keyboardRequireSelection;
+            set
+            {
+                if (_keyboardRequireSelection == value)
+                {
+                    return;
+                }
+
+                _keyboardRequireSelection = value;
+                OnRequireSelectionPolicyChanged();
+            }
+        }
+
+        /// <summary>
+        /// 一次性配置手柄与键鼠的强制选中策略。
+        /// </summary>
+        public static void SetRequireSelection(bool gamepad, bool keyboard)
+        {
+            bool changed = _gamepadRequireSelection != gamepad || _keyboardRequireSelection != keyboard;
+            _gamepadRequireSelection = gamepad;
+            _keyboardRequireSelection = keyboard;
+            if (changed)
+            {
+                OnRequireSelectionPolicyChanged();
+            }
+        }
 
         internal static void Initialize()
         {
@@ -280,10 +332,15 @@ namespace AlicizaX.UI.UXNavigation
             }
 
             Selectable preferred = _topScope.GetPreferredSelectable();
+            if (preferred == null)
+            {
+                return;
+            }
+
             UXSelectionAudio.BeginSuppress();
             try
             {
-                eventSystem.SetSelectedGameObject(preferred != null ? preferred.gameObject : null);
+                eventSystem.SetSelectedGameObject(preferred.gameObject);
             }
             finally
             {
@@ -328,13 +385,22 @@ namespace AlicizaX.UI.UXNavigation
             }
         }
 
+        private static void OnRequireSelectionPolicyChanged()
+        {
+            if (!EnsureInitialized())
+            {
+                return;
+            }
+
+            if (ShouldEnsureSelection())
+            {
+                FlushStateIfDirty(true);
+            }
+        }
+
         private static bool ShouldEnsureSelection()
         {
-            UXInput.Watch.InputType inputType = UXInput.Watch.CurrentInputType;
-            return RequiresSelectedForInputType(inputType)
-                   || (_topScope != null
-                       && inputType == UXInput.Watch.InputType.KeyboardMouse
-                       && _topScope.HasValidDefaultSelectable());
+            return RequiresSelectedForInputType(UXInput.Watch.CurrentInputType);
         }
 
         private static bool RequiresSelectedForInputType(UXInput.Watch.InputType inputType)
@@ -426,8 +492,7 @@ namespace AlicizaX.UI.UXNavigation
             _suppressionDirty = true;
             _isFlushingState = false;
             _initialized = false;
-            _gamepadRequireSelection = true;
-            _keyboardRequireSelection = false;
+            // RequireSelection 策略由业务配置，不在运行时重置中覆盖。
         }
     }
 }

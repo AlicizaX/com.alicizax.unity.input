@@ -356,11 +356,6 @@ namespace AlicizaX.UI.UXNavigation
             return _availableSelectableCount > 0;
         }
 
-        internal bool HasValidDefaultSelectable()
-        {
-            return IsSelectableValid(_defaultSelectable);
-        }
-
         internal void RecordSelection(GameObject selectedObject)
         {
             if (!_rememberLastSelection || selectedObject == null)
