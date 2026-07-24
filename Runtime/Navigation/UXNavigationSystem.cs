@@ -280,7 +280,16 @@ namespace AlicizaX.UI.UXNavigation
             }
 
             Selectable preferred = _topScope.GetPreferredSelectable();
-            eventSystem.SetSelectedGameObject(preferred != null ? preferred.gameObject : null);
+            UXSelectionAudio.BeginSuppress();
+            try
+            {
+                eventSystem.SetSelectedGameObject(preferred != null ? preferred.gameObject : null);
+            }
+            finally
+            {
+                UXSelectionAudio.EndSuppress();
+            }
+
             GameObject selectedObject = eventSystem.currentSelectedGameObject;
             if (selectedObject != null)
             {
