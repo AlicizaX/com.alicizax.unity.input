@@ -420,21 +420,36 @@ namespace UnityEngine.UI
             InputActionReference action,
             EHotkeyPressType pressType)
         {
-            if (trigger == null || holder == null || action == null || action.action == null)
+            if (trigger == null || holder == null || action == null)
             {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                Log.Warning(
+                    $"Hotkey registration skipped on '{GetTriggerGameObjectName(trigger)}': " +
+                    "trigger/holder/action reference is null.");
+#endif
+                return;
+            }
+
+            if (!TryResolveRuntimeAction(action, out InputAction inputAction, out string resolvePath))
+            {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                Log.Warning(
+                    $"Hotkey registration skipped on '{GetTriggerGameObjectName(trigger)}': " +
+                    $"could not resolve InputAction from reference (path='{resolvePath ?? "<null>"}'). " +
+                    "Ensure InputActionProvider is initialized with the same InputActionAsset.");
+#endif
                 return;
             }
 
             EnsureAppHooks();
             UnregisterHotkey(trigger);
 
-            InputAction inputAction = action.action;
             HotkeyScope scope = GetOrCreateScope(holder);
             // Reparent can happen without scope recreate; refresh only this scope.
             scope.RefreshHierarchy();
 
-#if UNITY_EDITOR
-            WarnIfObservingDisabledAction(trigger, inputAction);
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            WarnIfObservingDisabledAction(trigger, inputAction, resolvePath);
 #endif
             HotkeyRegistration registration = new(trigger, trigger.HotkeyConsumesInput);
             if (!TryAddScopeRegistration(scope, inputAction, pressType, registration))
@@ -452,6 +467,59 @@ namespace UnityEngine.UI
             }
 
             _triggerMap[trigger] = new TriggerRegistration(inputAction, holder, pressType);
+        }
+
+        // Prefer the InputAction instance owned/enabled by InputActionProvider.
+        // Prefab InputActionReference can resolve to a different asset instance in player builds.
+        private static bool TryResolveRuntimeAction(
+            InputActionReference actionReference,
+            out InputAction inputAction,
+            out string resolvePath)
+        {
+            inputAction = null;
+            resolvePath = null;
+
+            InputAction referenceAction = actionReference != null ? actionReference.action : null;
+            if (referenceAction == null)
+            {
+                return false;
+            }
+
+            resolvePath = BuildActionPath(referenceAction);
+            if (!string.IsNullOrEmpty(resolvePath)
+                && InputActionProvider.TryResolveAction(resolvePath, out InputAction providerAction)
+                && providerAction != null)
+            {
+                inputAction = providerAction;
+                return true;
+            }
+
+            // Fallback keeps editor/playmode working when provider is not online yet.
+            // In player builds this is usually wrong: callbacks attach to a non-enabled instance.
+            inputAction = referenceAction;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            Log.Warning(
+                $"Hotkey action path '{resolvePath ?? "<null>"}' was not found in InputActionProvider; " +
+                "falling back to InputActionReference.action. " +
+                "If InputActionProvider initializes later or uses a different asset, hotkeys will not fire in builds.");
+#endif
+            return true;
+        }
+
+        private static string BuildActionPath(InputAction action)
+        {
+            if (action == null)
+            {
+                return null;
+            }
+
+            InputActionMap map = action.actionMap;
+            if (map != null && !string.IsNullOrEmpty(map.name) && !string.IsNullOrEmpty(action.name))
+            {
+                return map.name + "/" + action.name;
+            }
+
+            return action.name;
         }
 
         internal static void UnregisterHotkey(HotkeyComponentBase trigger)
@@ -685,7 +753,7 @@ namespace UnityEngine.UI
 
             if (!actionRegistrations.TrySet(pressType, registration, out HotkeyComponentBase existingTrigger))
             {
-#if UNITY_EDITOR
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
                 WarnRegistrationConflict(scope, action, pressType, existingTrigger, registration.Trigger);
 #endif
                 return false;
@@ -1122,8 +1190,11 @@ namespace UnityEngine.UI
             return right.ActivationSerial.CompareTo(left.ActivationSerial);
         }
 
-#if UNITY_EDITOR
-        private static void WarnIfObservingDisabledAction(HotkeyComponentBase trigger, InputAction action)
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        private static void WarnIfObservingDisabledAction(
+            HotkeyComponentBase trigger,
+            InputAction action,
+            string resolvePath)
         {
             if (action == null || action.enabled)
             {
@@ -1131,9 +1202,10 @@ namespace UnityEngine.UI
             }
 
             string triggerName = GetTriggerGameObjectName(trigger);
+            string actionLabel = !string.IsNullOrEmpty(resolvePath) ? resolvePath : (action.name ?? "<null>");
             Log.Warning(
-                $"{triggerName} observes disabled hotkey action {action.name}. " +
-                "The hotkey system will not enable it; make sure the owning input map is enabled externally.");
+                $"{triggerName} observes disabled hotkey action '{actionLabel}'. " +
+                "The hotkey system will not enable it; make sure InputActionProvider enabled the owning map.");
         }
 
         private static void WarnRegistrationConflict(
@@ -1172,9 +1244,18 @@ namespace UnityEngine.UI
     {
         public static void BindHotKey(this HotkeyComponentBase trigger)
         {
-            InputActionReference action = trigger?.HotkeyAction;
+            if (trigger == null)
+            {
+                return;
+            }
+
+            InputActionReference action = trigger.HotkeyAction;
             if (action == null)
             {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                Log.Warning(
+                    $"Hotkey bind skipped on '{trigger.gameObject.name}': InputActionReference is not assigned.");
+#endif
                 return;
             }
 
@@ -1182,7 +1263,8 @@ namespace UnityEngine.UI
             if (holder == null)
             {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-                Log.Warning("Hotkey trigger could not find a UIHolderObjectBase owner.");
+                Log.Warning(
+                    $"Hotkey bind skipped on '{trigger.gameObject.name}': UIHolderObjectBase owner not found.");
 #endif
                 return;
             }
