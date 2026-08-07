@@ -10,8 +10,7 @@ public abstract class InputGlyphBehaviourBase : MonoBehaviour
     public enum ActionSourceMode
     {
         ActionReference,
-        HotkeyTrigger,
-        ActionName
+        HotkeyTrigger
     }
 
     [Serializable]
@@ -22,20 +21,22 @@ public abstract class InputGlyphBehaviourBase : MonoBehaviour
         public UnityEvent onNotMatched;
     }
 
-    [Header("Source")] [SerializeField] private ActionSourceMode actionSourceMode = ActionSourceMode.ActionReference;
+    [Header("Source")]
+    [SerializeField] private ActionSourceMode actionSourceMode = ActionSourceMode.ActionReference;
     [SerializeField] private InputActionReference actionReference;
-    [SerializeField] private Component hotkeyTrigger;
-    [SerializeField] private string actionName;
+    [SerializeField] private HotkeyComponentBase hotkeyTrigger;
     [SerializeField] private string compositePartName;
 
-    [Header("Platform Events")] [SerializeField]
-    private DeviceProfileEvent[] profileEvents = Array.Empty<DeviceProfileEvent>();
+    [Header("Platform Events")]
+    [SerializeField] private DeviceProfileEvent[] profileEvents = Array.Empty<DeviceProfileEvent>();
 
-    private bool _hasInvokedProfileEvent;
+    private InputAction _runtimeAction;
+    private string _runtimeCompositePartName;
+    private bool _useRuntimeAction;
     private string _lastInvokedProfileId;
 
     protected string CurrentProfileId => UXInput.Glyph.CurrentProfileId;
-    protected string CompositePartName => compositePartName;
+    protected string CompositePartName => _useRuntimeAction ? _runtimeCompositePartName : compositePartName;
 
 #if UNITY_EDITOR
     protected virtual void OnValidate()
@@ -61,6 +62,44 @@ public abstract class InputGlyphBehaviourBase : MonoBehaviour
         UXInput.Rebind.OnBindingsChanged -= HandleBindingsChanged;
     }
 
+    /// <summary>
+    /// 运行时动态切换用于图标解析的 InputAction，并立即刷新显示。
+    /// </summary>
+    /// <param name="action">目标 Action；传 null 清空显示。</param>
+    /// <param name="compositePartName">
+    /// Composite 子部分名，例如 Move 的 "Up"/"Down"/"Left"/"Right"。
+    /// 普通绑定传 null 或空字符串。
+    /// </param>
+    public void SetAction(InputAction action, string compositePartName = null)
+    {
+        _useRuntimeAction = true;
+        _runtimeAction = action;
+        _runtimeCompositePartName = compositePartName;
+        if (isActiveAndEnabled)
+        {
+            RefreshGlyph();
+        }
+    }
+
+    /// <summary>
+    /// 清除运行时 Action 覆盖，恢复为 Inspector 配置的数据源。
+    /// </summary>
+    public void ClearRuntimeAction()
+    {
+        if (!_useRuntimeAction)
+        {
+            return;
+        }
+
+        _useRuntimeAction = false;
+        _runtimeAction = null;
+        _runtimeCompositePartName = null;
+        if (isActiveAndEnabled)
+        {
+            RefreshGlyph();
+        }
+    }
+
     private void HandleInputContextChanged(UXInput.Watch.InputContext context)
     {
         InvokeProfileEvents(false);
@@ -74,14 +113,19 @@ public abstract class InputGlyphBehaviourBase : MonoBehaviour
 
     protected InputAction ResolveAction()
     {
+        if (_useRuntimeAction)
+        {
+            return _runtimeAction;
+        }
+
         switch (actionSourceMode)
         {
             case ActionSourceMode.ActionReference:
                 return actionReference != null ? actionReference.action : null;
             case ActionSourceMode.HotkeyTrigger:
-                return ResolveHotkeyAction();
-            case ActionSourceMode.ActionName:
-                return InputActionProvider.ResolveAction(actionName);
+                return hotkeyTrigger != null && hotkeyTrigger.HotkeyAction != null
+                    ? hotkeyTrigger.HotkeyAction.action
+                    : null;
             default:
                 return null;
         }
@@ -91,17 +135,6 @@ public abstract class InputGlyphBehaviourBase : MonoBehaviour
     {
     }
 
-    private InputAction ResolveHotkeyAction()
-    {
-        HotkeyComponentBase trigger = ResolveHotkeyTrigger();
-        return trigger != null && trigger.HotkeyAction != null ? trigger.HotkeyAction.action : null;
-    }
-
-    private HotkeyComponentBase ResolveHotkeyTrigger()
-    {
-        return hotkeyTrigger as HotkeyComponentBase;
-    }
-
     private void AutoAssignHotkeyTrigger()
     {
         if (actionSourceMode != ActionSourceMode.HotkeyTrigger || hotkeyTrigger != null)
@@ -109,35 +142,21 @@ public abstract class InputGlyphBehaviourBase : MonoBehaviour
             return;
         }
 
-        if (TryGetComponent(typeof(HotkeyComponentBase), out Component component))
-        {
-            hotkeyTrigger = component;
-        }
+        hotkeyTrigger = GetComponent<HotkeyComponentBase>();
     }
 
     private void InvokeProfileEvents(bool force)
     {
         string currentProfileId = CurrentProfileId;
-        if (!force && _hasInvokedProfileEvent && string.Equals(_lastInvokedProfileId, currentProfileId, StringComparison.Ordinal))
+        if (!force && string.Equals(_lastInvokedProfileId, currentProfileId, StringComparison.Ordinal))
         {
             return;
         }
 
-        _hasInvokedProfileEvent = true;
         _lastInvokedProfileId = currentProfileId;
-        if (profileEvents == null)
-        {
-            return;
-        }
-
         for (int i = 0; i < profileEvents.Length; i++)
         {
             DeviceProfileEvent profileEvent = profileEvents[i];
-            if (profileEvent == null)
-            {
-                continue;
-            }
-
             if (string.Equals(profileEvent.profileId, currentProfileId, StringComparison.OrdinalIgnoreCase))
             {
                 profileEvent.onMatched?.Invoke();

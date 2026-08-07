@@ -6,9 +6,8 @@ using UnityEngine.UI;
 [AddComponentMenu("UI/Input Glyph Image")]
 public sealed class InputGlyphImage : InputGlyphBehaviourBase
 {
-    [Header("Output")] [SerializeField] private Image targetImage;
-
-    private Sprite _cachedSprite;
+    [Header("Output")]
+    [SerializeField] private Image targetImage;
 
     protected override void AutoAssignTarget()
     {
@@ -26,31 +25,15 @@ public sealed class InputGlyphImage : InputGlyphBehaviourBase
         }
 
         InputAction action = ResolveAction();
-        if (action == null)
+        Sprite sprite = null;
+        if (action != null)
         {
-            ClearImage();
-            return;
+            UXInput.Glyph.TryGetUISpriteForActionPath(action, CompositePartName, out sprite);
         }
 
-        bool hasSprite = UXInput.Glyph.TryGetUISpriteForActionPath(action, CompositePartName, out Sprite sprite);
-        if (!hasSprite)
+        if (targetImage.sprite != sprite)
         {
-            sprite = null;
-        }
-
-        if (_cachedSprite != sprite || targetImage.sprite != sprite)
-        {
-            _cachedSprite = sprite;
             targetImage.sprite = sprite;
-        }
-    }
-
-    private void ClearImage()
-    {
-        _cachedSprite = null;
-        if (targetImage != null && targetImage.sprite != null)
-        {
-            targetImage.sprite = null;
         }
     }
 }

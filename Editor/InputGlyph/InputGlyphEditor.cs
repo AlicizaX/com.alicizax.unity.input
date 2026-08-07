@@ -11,12 +11,11 @@ using UnityEngine.UI;
 
 [CustomEditor(typeof(InputGlyphBehaviourBase), true)]
 [CanEditMultipleObjects]
-public sealed class InputGlyphEditor : Editor
+public class InputGlyphEditor : Editor
 {
     private const float ToolbarHeight = 30f;
     private const float RowHeight = 24f;
     private const float RowLabelWidth = 132f;
-    private const float RefreshButtonWidth = 142f;
     private const float EventToolbarHeight = 26f;
     private const float EventActionButtonSize = 20f;
 
@@ -46,9 +45,6 @@ public sealed class InputGlyphEditor : Editor
         "Touch",
     };
 
-    private static readonly List<InputActionAsset> CachedActionAssets = new List<InputActionAsset>(16);
-    private static bool _actionAssetCacheDirty = true;
-
     private readonly List<string> _compositePartBuffer = new List<string>(8);
     private readonly List<string> _compositeOptionBuffer = new List<string>(9);
     private readonly Dictionary<int, bool> _eventFoldouts = new Dictionary<int, bool>();
@@ -57,7 +53,6 @@ public sealed class InputGlyphEditor : Editor
     private SerializedProperty _actionSourceMode;
     private SerializedProperty _actionReference;
     private SerializedProperty _hotkeyTrigger;
-    private SerializedProperty _actionName;
     private SerializedProperty _compositePartName;
     private SerializedProperty _targetImage;
     private SerializedProperty _targetText;
@@ -81,7 +76,6 @@ public sealed class InputGlyphEditor : Editor
         _actionSourceMode = serializedObject.FindProperty("actionSourceMode");
         _actionReference = serializedObject.FindProperty("actionReference");
         _hotkeyTrigger = serializedObject.FindProperty("hotkeyTrigger");
-        _actionName = serializedObject.FindProperty("actionName");
         _compositePartName = serializedObject.FindProperty("compositePartName");
         _targetImage = serializedObject.FindProperty("targetImage");
         _targetText = serializedObject.FindProperty("targetText");
@@ -149,39 +143,16 @@ public sealed class InputGlyphEditor : Editor
 
     private void DrawSourceFields()
     {
-        InputGlyphBehaviourBase.ActionSourceMode mode = (InputGlyphBehaviourBase.ActionSourceMode)_actionSourceMode.enumValueIndex;
+        InputGlyphBehaviourBase.ActionSourceMode mode =
+            (InputGlyphBehaviourBase.ActionSourceMode)_actionSourceMode.enumValueIndex;
         switch (mode)
         {
             case InputGlyphBehaviourBase.ActionSourceMode.ActionReference:
                 DrawPropertyRow("Action Reference", _actionReference);
-                EditorUtils.TrHelpIconText("Use a direct InputActionReference.", MessageType.None);
                 break;
 
             case InputGlyphBehaviourBase.ActionSourceMode.HotkeyTrigger:
                 DrawPropertyRow("Hotkey Trigger", _hotkeyTrigger);
-                Component component = _hotkeyTrigger.objectReferenceValue as Component;
-                if (component != null && !(component is HotkeyComponentBase))
-                {
-                    EditorUtils.TrHelpIconText("Hotkey Trigger must inherit HotkeyComponentBase.", MessageType.Warning);
-                }
-                else
-                {
-                    EditorUtils.TrHelpIconText("Reads the action from an external HotkeyComponentBase component.", MessageType.None);
-                }
-
-                break;
-
-            case InputGlyphBehaviourBase.ActionSourceMode.ActionName:
-                DrawPropertyRow("Action Name", _actionName);
-                EditorGUILayout.BeginHorizontal(_fieldRowStyle);
-                GUILayout.FlexibleSpace();
-                if (AlicizaEditorGUI.DrawInlineButton("Refresh Action Cache", RefreshButtonWidth))
-                {
-                    _actionAssetCacheDirty = true;
-                }
-
-                EditorGUILayout.EndHorizontal();
-                EditorUtils.TrHelpIconText("Use full action path: MapName/ActionName.", MessageType.None);
                 break;
         }
     }
@@ -198,20 +169,12 @@ public sealed class InputGlyphEditor : Editor
         if (_targetImage != null)
         {
             DrawPropertyRow("Target Image", _targetImage);
-            EditorUtils.TrHelpIconText("Shows the resolved sprite on a Unity UI Image.", MessageType.None);
             return;
         }
 
         if (_targetText != null)
         {
             DrawPropertyRow("Target TMP Text", _targetText);
-            EditorUtils.TrHelpIconText("Uses the current TMP text as a template and replaces {0}.", MessageType.None);
-            TMP_Text text = _targetText.objectReferenceValue as TMP_Text;
-            if (text == null)
-            {
-                EditorUtils.TrHelpIconText("If TMP_Text is empty, the component tries GetComponent<TMP_Text>().", MessageType.None);
-            }
-
             return;
         }
 
@@ -421,7 +384,6 @@ public sealed class InputGlyphEditor : Editor
 
         DrawPopupRow("Composite Part", selectedIndex, _compositeOptionArray, out int newIndex);
         _compositePartName.stringValue = newIndex <= 0 ? string.Empty : _compositePartBuffer[newIndex - 1];
-        EditorUtils.TrHelpIconText("Shown only when the resolved action contains composite bindings.", MessageType.None);
     }
 
     private void DrawSectionBegin(string title)
@@ -576,7 +538,8 @@ public sealed class InputGlyphEditor : Editor
 
     private InputAction ResolveSelectedAction()
     {
-        InputGlyphBehaviourBase.ActionSourceMode mode = (InputGlyphBehaviourBase.ActionSourceMode)_actionSourceMode.enumValueIndex;
+        InputGlyphBehaviourBase.ActionSourceMode mode =
+            (InputGlyphBehaviourBase.ActionSourceMode)_actionSourceMode.enumValueIndex;
         switch (mode)
         {
             case InputGlyphBehaviourBase.ActionSourceMode.ActionReference:
@@ -584,73 +547,11 @@ public sealed class InputGlyphEditor : Editor
                 return actionReference != null ? actionReference.action : null;
 
             case InputGlyphBehaviourBase.ActionSourceMode.HotkeyTrigger:
-                Component component = _hotkeyTrigger.objectReferenceValue as Component;
-                if (component is HotkeyComponentBase trigger && trigger.HotkeyAction != null)
-                {
-                    return trigger.HotkeyAction.action;
-                }
-
-                return null;
-
-            case InputGlyphBehaviourBase.ActionSourceMode.ActionName:
-                return ResolveActionByName(_actionName.stringValue);
+                HotkeyComponentBase trigger = _hotkeyTrigger.objectReferenceValue as HotkeyComponentBase;
+                return trigger != null && trigger.HotkeyAction != null ? trigger.HotkeyAction.action : null;
 
             default:
                 return null;
-        }
-    }
-
-    private InputAction ResolveActionByName(string actionName)
-    {
-        if (string.IsNullOrWhiteSpace(actionName))
-        {
-            return null;
-        }
-
-        foreach (InputActionAsset asset in EnumerateInputActionAssets())
-        {
-            if (asset == null)
-            {
-                continue;
-            }
-
-            InputAction action = asset.FindAction(actionName, false);
-            if (action != null)
-            {
-                return action;
-            }
-        }
-
-        return null;
-    }
-
-    private IEnumerable<InputActionAsset> EnumerateInputActionAssets()
-    {
-        EnsureActionAssetCache();
-        for (int i = 0; i < CachedActionAssets.Count; i++)
-        {
-            yield return CachedActionAssets[i];
-        }
-    }
-
-    private static void EnsureActionAssetCache()
-    {
-        if (!_actionAssetCacheDirty)
-        {
-            return;
-        }
-
-        _actionAssetCacheDirty = false;
-        CachedActionAssets.Clear();
-        string[] guids = AssetDatabase.FindAssets("t:InputActionAsset");
-        for (int i = 0; i < guids.Length; i++)
-        {
-            string path = AssetDatabase.GUIDToAssetPath(guids[i]);
-            InputActionAsset asset = AssetDatabase.LoadAssetAtPath<InputActionAsset>(path);
-            if (asset != null && !CachedActionAssets.Contains(asset))
-            {
-                CachedActionAssets.Add(asset);
-            }
         }
     }
 
