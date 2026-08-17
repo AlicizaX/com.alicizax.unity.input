@@ -1,10 +1,10 @@
-#if INPUTSYSTEM_SUPPORT
-using System;
+﻿#if INPUTSYSTEM_SUPPORT
 using AlicizaX;
 using AlicizaX.UI.Runtime;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
+
 namespace AlicizaX.UI.UXNavigation
 {
     public static class UXNavigationSystem
@@ -17,8 +17,7 @@ namespace AlicizaX.UI.UXNavigation
 
         private static UXNavigationScope _topScope;
         private static ulong _activationSerial;
-        private static bool _stateDirty = true;
-        private static bool _suppressionDirty = true;
+        private static bool _dirty = true;
         private static bool _isFlushingState;
         private static bool _initialized;
         private static bool _gamepadRequireSelection = true;
@@ -83,56 +82,42 @@ namespace AlicizaX.UI.UXNavigation
                 return;
             }
 
-            ResetStaticState();
             _initialized = true;
             SubscribeInputWatcher();
-            RegisterLoadedScopes();
+            FlushStateIfDirty(ShouldEnsureSelection());
         }
 
         internal static void Shutdown()
         {
-            if (!_initialized)
+            UnsubscribeInputWatcher();
+            CaptureTopScopeSelection();
+            for (int i = 0; i < _scopeCount; i++)
             {
-                return;
+                UXNavigationScope scope = _scopes[i];
+                if (scope == null)
+                {
+                    continue;
+                }
+
+                scope.IsAlive = false;
+                scope.IsAvailable = false;
+                scope.WasAlive = false;
+                scope.SetNavigationSuppressed(false);
             }
 
-            UnsubscribeInputWatcher();
-            ResetStaticState();
+            _topScope = null;
+            _dirty = true;
+            _isFlushingState = false;
+            _initialized = false;
         }
-
 
         internal static void RequestRefresh(bool ensureSelection)
         {
-            if (!EnsureInitialized())
-            {
-                return;
-            }
-
-            MarkStateDirtyInternal();
+            _dirty = true;
             FlushStateIfDirty(ensureSelection);
         }
 
-        internal static void RequestEnsureSelection()
-        {
-            if (!EnsureInitialized())
-            {
-                return;
-            }
-
-            FlushStateIfDirty(true);
-        }
-
         internal static void RegisterScope(UXNavigationScope scope)
-        {
-            if (!EnsureInitialized())
-            {
-                return;
-            }
-
-            RegisterScopeInternal(scope);
-        }
-
-        private static void RegisterScopeInternal(UXNavigationScope scope)
         {
             if (scope == null || scope.RuntimeIndex != InvalidIndex)
             {
@@ -141,24 +126,21 @@ namespace AlicizaX.UI.UXNavigation
 
             if (_scopeCount >= _scopes.Length)
             {
-                ReportCapacityExceeded();
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                Log.Error("UXNavigationSystem scope capacity exceeded.");
+#endif
                 return;
             }
 
             int index = _scopeCount++;
             _scopes[index] = scope;
             scope.RuntimeIndex = index;
-            scope.InvalidateSkipCacheOnly();
-            MarkStateDirtyInternal();
+            _dirty = true;
+            FlushStateIfDirty(false);
         }
 
         internal static void UnregisterScope(UXNavigationScope scope)
         {
-            if (!EnsureInitialized())
-            {
-                return;
-            }
-
             if (scope == null)
             {
                 return;
@@ -174,11 +156,12 @@ namespace AlicizaX.UI.UXNavigation
             if (_topScope == scope)
             {
                 CaptureTopScopeSelection();
-                SetTopScope(null);
+                _topScope = null;
             }
 
+            scope.IsAlive = false;
             scope.IsAvailable = false;
-            scope.WasAvailable = false;
+            scope.WasAlive = false;
             scope.SetNavigationSuppressed(false);
             scope.RuntimeIndex = InvalidIndex;
 
@@ -191,66 +174,42 @@ namespace AlicizaX.UI.UXNavigation
                 movedScope.RuntimeIndex = index;
             }
 
-            MarkStateDirtyInternal();
+            _dirty = true;
+            FlushStateIfDirty(false);
         }
 
         internal static void MarkStateDirty()
         {
-            if (!EnsureInitialized())
-            {
-                return;
-            }
-
-            MarkStateDirtyInternal();
+            _dirty = true;
+            FlushStateIfDirty(false);
         }
 
-        private static void MarkStateDirtyInternal()
+        private static void FlushStateIfDirty(bool ensureSelection)
         {
-            _stateDirty = true;
-            _suppressionDirty = true;
-        }
-
-        internal static void InvalidateSkipCaches()
-        {
-            if (!EnsureInitialized())
-            {
-                return;
-            }
-
-            for (int i = 0; i < _scopeCount; i++)
-            {
-                _scopes[i].InvalidateSkipCacheOnly();
-            }
-
-            MarkStateDirtyInternal();
-        }
-
-        private static bool EnsureInitialized()
-        {
-            return _initialized;
-        }
-
-        private static void FlushStateIfDirty(bool ensureSelection = true)
-        {
-            if (_isFlushingState || (!_stateDirty && !_suppressionDirty && !ensureSelection))
+            if (!_initialized || _isFlushingState || (!_dirty && !ensureSelection))
             {
                 return;
             }
 
             _isFlushingState = true;
             CaptureTopScopeSelection();
-            if (_stateDirty)
+
+            UXNavigationScope highestOccluder;
+            if (_dirty)
             {
-                UXNavigationScope newTopScope = FindTopScope();
-                _stateDirty = false;
-                SetTopScope(newTopScope);
+                UXNavigationScope newTopScope = ResolveScopes(out highestOccluder);
+                _dirty = false;
+                if (!ReferenceEquals(_topScope, newTopScope))
+                {
+                    _topScope = newTopScope;
+                }
+            }
+            else
+            {
+                highestOccluder = FindHighestOccluder();
             }
 
-            if (_suppressionDirty)
-            {
-                ApplyScopeSuppression();
-                _suppressionDirty = false;
-            }
+            ApplyScopeSuppression(highestOccluder);
 
             if (ensureSelection && ShouldEnsureSelection())
             {
@@ -260,35 +219,62 @@ namespace AlicizaX.UI.UXNavigation
             _isFlushingState = false;
         }
 
-        private static UXNavigationScope FindTopScope()
+        private static UXNavigationScope ResolveScopes(out UXNavigationScope highestOccluder)
         {
             UXNavigationScope bestScope = null;
+            highestOccluder = null;
             for (int i = 0; i < _scopeCount; i++)
             {
                 UXNavigationScope scope = _scopes[i];
-                bool available = IsScopeAvailable(scope);
-                scope.IsAvailable = available;
-                if (scope.WasAvailable != available)
+                bool alive = IsScopeAlive(scope);
+                scope.IsAlive = alive;
+                if (scope.WasAlive != alive)
                 {
-                    scope.WasAvailable = available;
-                    if (available)
+                    scope.WasAlive = alive;
+                    if (alive)
                     {
                         scope.ActivationSerial = ++_activationSerial;
                     }
-
-                    _suppressionDirty = true;
                 }
 
-                if (available && (bestScope == null || IsHigherPriority(scope, bestScope)))
+                bool focusable = alive && scope.Navigable && scope.HasAvailableSelectable();
+                scope.IsAvailable = focusable;
+
+                if (alive && scope.BlockLowerScopes && (highestOccluder == null || IsHigherPriority(scope, highestOccluder)))
+                {
+                    highestOccluder = scope;
+                }
+
+                if (focusable && (bestScope == null || IsHigherPriority(scope, bestScope)))
                 {
                     bestScope = scope;
                 }
             }
 
+            if (highestOccluder != null && !highestOccluder.IsAvailable)
+            {
+                return null;
+            }
+
             return bestScope;
         }
 
-        private static bool IsScopeAvailable(UXNavigationScope scope)
+        private static UXNavigationScope FindHighestOccluder()
+        {
+            UXNavigationScope highestOccluder = null;
+            for (int i = 0; i < _scopeCount; i++)
+            {
+                UXNavigationScope scope = _scopes[i];
+                if (scope.IsAlive && scope.BlockLowerScopes && (highestOccluder == null || IsHigherPriority(scope, highestOccluder)))
+                {
+                    highestOccluder = scope;
+                }
+            }
+
+            return highestOccluder;
+        }
+
+        private static bool IsScopeAlive(UXNavigationScope scope)
         {
             if (scope == null || !scope.isActiveAndEnabled || !scope.gameObject.activeInHierarchy)
             {
@@ -296,22 +282,26 @@ namespace AlicizaX.UI.UXNavigation
             }
 
             Canvas canvas = scope.Canvas;
-            return canvas != null
-                   && canvas.gameObject.layer == UIComponent.UIShowLayer
-                   && !scope.IsNavigationSkipped
-                   && scope.HasAvailableSelectable();
+            if (canvas == null || !canvas.enabled)
+            {
+                return false;
+            }
+
+            UIHolderObjectBase holder = scope.Holder;
+            int layer = holder != null ? holder.gameObject.layer : canvas.gameObject.layer;
+            return layer == UIComponent.UIShowLayer;
         }
 
-        private static void ApplyScopeSuppression()
+        private static void ApplyScopeSuppression(UXNavigationScope highestOccluder)
         {
             for (int i = 0; i < _scopeCount; i++)
             {
                 UXNavigationScope scope = _scopes[i];
-                bool suppress = scope.IsAvailable
-                                && _topScope != null
-                                && scope != _topScope
-                                && _topScope.BlockLowerScopes
-                                && IsHigherPriority(_topScope, scope);
+                bool suppress = !scope.IsAlive
+                                || !scope.IsAvailable
+                                || (highestOccluder != null
+                                    && highestOccluder != scope
+                                    && IsHigherPriority(highestOccluder, scope));
                 scope.SetNavigationSuppressed(suppress);
             }
         }
@@ -319,8 +309,18 @@ namespace AlicizaX.UI.UXNavigation
         private static void EnsureNavigationSelection()
         {
             EventSystem eventSystem = EventSystem.current;
-            if (eventSystem == null || _topScope == null || !ShouldEnsureSelection())
+            if (eventSystem == null)
             {
+                return;
+            }
+
+            if (_topScope == null)
+            {
+                if (eventSystem.currentSelectedGameObject != null)
+                {
+                    SetSelected(eventSystem, null);
+                }
+
                 return;
             }
 
@@ -337,16 +337,7 @@ namespace AlicizaX.UI.UXNavigation
                 return;
             }
 
-            UXSelectionAudio.BeginSuppress();
-            try
-            {
-                eventSystem.SetSelectedGameObject(preferred.gameObject);
-            }
-            finally
-            {
-                UXSelectionAudio.EndSuppress();
-            }
-
+            SetSelected(eventSystem, preferred.gameObject);
             GameObject selectedObject = eventSystem.currentSelectedGameObject;
             if (selectedObject != null)
             {
@@ -369,56 +360,34 @@ namespace AlicizaX.UI.UXNavigation
             }
         }
 
-        private static void OnInputTypeChanged(UXInput.Watch.InputType inputType)
+        private static void SetSelected(EventSystem eventSystem, GameObject selected)
         {
-            if (ShouldEnsureSelection())
+            UXSelectionAudio.BeginSuppress();
+            try
             {
-                FlushStateIfDirty(true);
+                eventSystem.SetSelectedGameObject(selected);
+            }
+            finally
+            {
+                UXSelectionAudio.EndSuppress();
             }
         }
 
-        private static void OnInputActivity(UXInput.Watch.InputContext context)
+        private static void OnInputTypeChanged(UXInput.Watch.InputType _)
         {
-            if (RequiresSelectedForInputType(context.InputType))
-            {
-                FlushStateIfDirty(true);
-            }
+            FlushStateIfDirty(ShouldEnsureSelection());
         }
 
         private static void OnRequireSelectionPolicyChanged()
         {
-            if (!EnsureInitialized())
-            {
-                return;
-            }
-
-            if (ShouldEnsureSelection())
-            {
-                FlushStateIfDirty(true);
-            }
+            FlushStateIfDirty(ShouldEnsureSelection());
         }
 
         private static bool ShouldEnsureSelection()
         {
-            return RequiresSelectedForInputType(UXInput.Watch.CurrentInputType);
-        }
-
-        private static bool RequiresSelectedForInputType(UXInput.Watch.InputType inputType)
-        {
+            UXInput.Watch.InputType inputType = UXInput.Watch.CurrentInputType;
             return ((inputType == UXInput.Watch.InputType.Gamepad || inputType == UXInput.Watch.InputType.Joystick) && _gamepadRequireSelection)
                    || (inputType == UXInput.Watch.InputType.KeyboardMouse && _keyboardRequireSelection);
-        }
-
-        private static void SetTopScope(UXNavigationScope topScope)
-        {
-            if (ReferenceEquals(_topScope, topScope))
-            {
-                return;
-            }
-
-            CaptureTopScopeSelection();
-            _topScope = topScope;
-            _suppressionDirty = true;
         }
 
         private static bool IsHigherPriority(UXNavigationScope left, UXNavigationScope right)
@@ -440,59 +409,15 @@ namespace AlicizaX.UI.UXNavigation
             return left.ActivationSerial > right.ActivationSerial;
         }
 
-        private static void ReportCapacityExceeded()
-        {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-            Log.Error("UXNavigationSystem scope capacity exceeded.");
-#endif
-        }
-
-        private static void RegisterLoadedScopes()
-        {
-            UXNavigationScope[] scopes = UnityEngine.Object.FindObjectsOfType<UXNavigationScope>(true);
-            for (int i = 0; i < scopes.Length; i++)
-            {
-                RegisterScopeInternal(scopes[i]);
-            }
-        }
-
         private static void SubscribeInputWatcher()
         {
             UXInput.Watch.OnInputTypeChanged -= OnInputTypeChanged;
             UXInput.Watch.OnInputTypeChanged += OnInputTypeChanged;
-            UXInput.Watch.OnInputActivity -= OnInputActivity;
-            UXInput.Watch.OnInputActivity += OnInputActivity;
         }
 
         private static void UnsubscribeInputWatcher()
         {
             UXInput.Watch.OnInputTypeChanged -= OnInputTypeChanged;
-            UXInput.Watch.OnInputActivity -= OnInputActivity;
-        }
-
-        private static void ResetStaticState()
-        {
-            for (int i = 0; i < _scopeCount; i++)
-            {
-                UXNavigationScope scope = _scopes[i];
-                if (scope != null)
-                {
-                    scope.IsAvailable = false;
-                    scope.WasAvailable = false;
-                    scope.SetNavigationSuppressed(false);
-                    scope.RuntimeIndex = InvalidIndex;
-                }
-            }
-
-            Array.Clear(_scopes, 0, _scopes.Length);
-            _scopeCount = 0;
-            _topScope = null;
-            _activationSerial = 0;
-            _stateDirty = true;
-            _suppressionDirty = true;
-            _isFlushingState = false;
-            _initialized = false;
-            // RequireSelection 策略由业务配置，不在运行时重置中覆盖。
         }
     }
 }

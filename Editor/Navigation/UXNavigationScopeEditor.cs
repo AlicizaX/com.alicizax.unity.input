@@ -12,7 +12,7 @@ namespace AlicizaX.UI.UXNavigation
     public sealed class UXNavigationScopeEditor : UnityEditor.Editor
     {
         private const float FieldRowHeight = 46f;
-        private const float PolicyRowHeight = 46f;
+        private const float PolicyRowHeight = 67f;
         private const float BakedRowHeight = 22f;
         private const float BakedHeaderHeight = 22f;
         private const float BakedFooterHeight = 24f;
@@ -30,6 +30,7 @@ namespace AlicizaX.UI.UXNavigation
         private SerializedProperty _bakedSelectables;
         private SerializedProperty _rememberLastSelection;
         private SerializedProperty _blockLowerScopes;
+        private SerializedProperty _navigable;
         private GUIContent _collectContent;
 
         private void OnEnable()
@@ -39,6 +40,7 @@ namespace AlicizaX.UI.UXNavigation
             _bakedSelectables = serializedObject.FindProperty("_bakedSelectables");
             _rememberLastSelection = serializedObject.FindProperty("_rememberLastSelection");
             _blockLowerScopes = serializedObject.FindProperty("_blockLowerScopes");
+            _navigable = serializedObject.FindProperty("_navigable");
             _collectContent = EditorGUIUtility.IconContent("Refresh", "收集");
         }
 
@@ -133,9 +135,11 @@ namespace AlicizaX.UI.UXNavigation
             DrawFieldRowBackground(rect);
 
             Rect rowRect = new Rect(rect.x + 6f, rect.y + 3f, rect.width - 12f, 18f);
-            Rect blockRect = new Rect(rowRect.x, rowRect.yMax + 3f, rowRect.width, rowRect.height);
+            Rect navigableRect = new Rect(rowRect.x, rowRect.yMax + 3f, rowRect.width, rowRect.height);
+            Rect blockRect = new Rect(navigableRect.x, navigableRect.yMax + 3f, navigableRect.width, navigableRect.height);
             DrawInlineToggleWithDescription(rowRect, _rememberLastSelection, "Remember", "重新打开时优先恢复上次选中的控件。");
-            DrawInlineToggleWithDescription(blockRect, _blockLowerScopes, "Block", "当前导航域激活时阻断下层导航域。");
+            DrawInlineToggleWithDescription(navigableRect, _navigable, "Focus", "开启：本域可以成为手柄/键盘焦点。关闭：本域不接收选中。");
+            DrawInlineToggleWithDescription(blockRect, _blockLowerScopes, "Block", "开启：本域存活时挡住下层导航。关闭：不挡下层。");
         }
 
         private static void DrawFieldRowBackground(Rect rect)

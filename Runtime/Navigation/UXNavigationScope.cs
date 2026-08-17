@@ -7,7 +7,7 @@ namespace AlicizaX.UI.UXNavigation
 
     [DisallowMultipleComponent]
     [AddComponentMenu("UI/UX Navigation Scope")]
-    public sealed class UXNavigationScope : MonoBehaviour
+    public sealed class UXNavigationScope : MonoBehaviour, UnityEngine.ISerializationCallbackReceiver
     {
         private const int InvalidIndex = -1;
         [SerializeField, Header("默认选中控件")] private Selectable _defaultSelectable;
@@ -19,6 +19,8 @@ namespace AlicizaX.UI.UXNavigation
         [SerializeField, Header("记住上次选中")] private bool _rememberLastSelection = false;
 
         [SerializeField, Header("阻断下层导航域")] private bool _blockLowerScopes = true;
+        [SerializeField, Header("可作为导航焦点")] private bool _navigable = true;
+        [SerializeField, HideInInspector] private bool _hasNavigableField;
 
         private Selectable[] _runtimeSelectables;
         private Navigation[] _bakedBaselineNavigation;
@@ -28,8 +30,6 @@ namespace AlicizaX.UI.UXNavigation
         private Selectable _lastSelected;
         private bool _navigationSuppressed;
         private int _cachedHierarchyDepth = -1;
-        private bool _cachedIsSkipped;
-        private bool _isSkippedCacheValid;
         private int _runtimeSelectableCount;
         private int[] _bakedSelectableHashIds = System.Array.Empty<int>();
         private int[] _bakedSelectableHashIndices = System.Array.Empty<int>();
@@ -40,16 +40,15 @@ namespace AlicizaX.UI.UXNavigation
         private int _availableSelectableCount;
         private Selectable _firstAvailableSelectable;
         private UIHolderObjectBase _subscribedHolder;
-        private Coroutine _refreshAfterEnableCoroutine;
 
         internal int RuntimeIndex { get; set; } = InvalidIndex;
         internal ulong ActivationSerial { get; set; }
+        internal bool IsAlive { get; set; }
+        internal bool WasAlive { get; set; }
         internal bool IsAvailable { get; set; }
-        internal bool WasAvailable { get; set; }
         public bool NavigationSuppressed => _navigationSuppressed;
         internal int BakedSelectableCount => _bakedSelectables != null ? _bakedSelectables.Length : 0;
         public int RuntimeSelectableCount => _runtimeSelectableCount;
-        public int RuntimeSelectableCapacity => _runtimeSelectables != null ? Mathf.Max(_runtimeSelectables.Length, BakedSelectableCount) : BakedSelectableCount;
 
         public Selectable DefaultSelectable
         {
@@ -65,34 +64,20 @@ namespace AlicizaX.UI.UXNavigation
         public bool RememberLastSelection => _rememberLastSelection;
         public bool BlockLowerScopes => _blockLowerScopes;
 
-        internal bool IsNavigationSkipped
+        public bool Navigable
         {
-            get
+            get => _navigable;
+            set
             {
-                if (!_isSkippedCacheValid)
+                if (_navigable == value)
                 {
-                    _cachedIsSkipped = HasSkipInParents();
-                    _isSkippedCacheValid = true;
+                    return;
                 }
 
-                return _cachedIsSkipped;
+                _navigable = value;
+                _hasNavigableField = true;
+                UXNavigationSystem.RequestRefresh(true);
             }
-        }
-
-        private bool HasSkipInParents()
-        {
-            Transform current = transform;
-            while (current != null)
-            {
-                if (current.TryGetComponent(out UXNavigationSkip skip) && skip.isActiveAndEnabled)
-                {
-                    return true;
-                }
-
-                current = current.parent;
-            }
-
-            return false;
         }
 
         internal Canvas Canvas
@@ -124,29 +109,14 @@ namespace AlicizaX.UI.UXNavigation
         private void OnEnable()
         {
             MarkSelectableAvailabilityDirty();
-            _refreshAfterEnableCoroutine = StartCoroutine(RefreshNavigationAfterEnable());
+            UXNavigationSystem.RequestRefresh(true);
         }
 
         private void OnDisable()
         {
-            if (_refreshAfterEnableCoroutine != null)
-            {
-                StopCoroutine(_refreshAfterEnableCoroutine);
-                _refreshAfterEnableCoroutine = null;
-            }
-
             MarkSelectableAvailabilityDirty();
             UXNavigationSystem.RequestRefresh(true);
         }
-
-        private System.Collections.IEnumerator RefreshNavigationAfterEnable()
-        {
-            yield return null;
-            _refreshAfterEnableCoroutine = null;
-            MarkSelectableAvailabilityDirty();
-            UXNavigationSystem.RequestRefresh(true);
-        }
-
 
         private void OnDestroy()
         {
@@ -165,7 +135,6 @@ namespace AlicizaX.UI.UXNavigation
         {
             _cachedCanvas = null;
             _cachedHierarchyDepth = -1;
-            _isSkippedCacheValid = false;
             MarkRuntimeStateDirty();
         }
 
@@ -236,29 +205,6 @@ namespace AlicizaX.UI.UXNavigation
             MarkSelectableSetDirty();
             MarkRuntimeStateDirty();
             return true;
-        }
-
-        public void InvalidateSelectableCache()
-        {
-            if (_navigationSuppressed)
-            {
-                ApplySuppression(_bakedSelectables, _bakedBaselineNavigation, BakedSelectableCount, false);
-                ApplySuppression(_runtimeSelectables, _runtimeBaselineNavigation, _runtimeSelectableCount, false);
-                CaptureBaselineBeforeSuppress();
-                ApplySuppression(_bakedSelectables, _bakedBaselineNavigation, BakedSelectableCount, true);
-                ApplySuppression(_runtimeSelectables, _runtimeBaselineNavigation, _runtimeSelectableCount, true);
-            }
-            else
-            {
-                RefreshBaselineWhenUnsuppressed();
-            }
-
-            MarkRuntimeStateDirty();
-        }
-
-        internal void InvalidateSkipCacheOnly()
-        {
-            _isSkippedCacheValid = false;
         }
 
         private void SubscribeHolderEvents()
@@ -802,6 +748,20 @@ namespace AlicizaX.UI.UXNavigation
         private void MarkRuntimeStateDirty()
         {
             UXNavigationSystem.MarkStateDirty();
+        }
+
+        public void OnBeforeSerialize()
+        {
+            _hasNavigableField = true;
+        }
+
+        public void OnAfterDeserialize()
+        {
+            if (!_hasNavigableField)
+            {
+                _navigable = true;
+                _hasNavigableField = true;
+            }
         }
     }
 }

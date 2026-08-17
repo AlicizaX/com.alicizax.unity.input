@@ -22,31 +22,7 @@ namespace UnityEngine.UI
         {
             base.Awake();
             AutoAssignTarget();
-            CacheTarget();
-            CacheEventData();
-        }
-
-        protected override void OnEnable()
-        {
-            AutoAssignTarget();
-            CacheTarget();
-            base.OnEnable();
-        }
-
-        private void OnApplicationFocus(bool hasFocus)
-        {
-            if (hasFocus)
-            {
-                CacheEventData();
-            }
-        }
-
-        protected override void OnDestroy()
-        {
-            base.OnDestroy();
-            _submitHandler = null;
-            _eventData = null;
-            _eventSystem = null;
+            _submitHandler = _component as ISubmitHandler;
         }
 
 #if UNITY_EDITOR
@@ -54,8 +30,7 @@ namespace UnityEngine.UI
         {
             base.OnValidate();
             AutoAssignTarget();
-            CacheTarget();
-
+            _submitHandler = _component as ISubmitHandler;
             if (_component != null && _submitHandler == null)
             {
                 _component = null;
@@ -65,20 +40,21 @@ namespace UnityEngine.UI
 
         public override void HotkeyActionTrigger()
         {
-            if (!isActiveAndEnabled || _submitHandler == null)
+            if (_submitHandler == null)
             {
                 return;
             }
 
             EventSystem currentEventSystem = EventSystem.current;
-            if (!ReferenceEquals(_eventSystem, currentEventSystem))
-            {
-                CacheEventData(currentEventSystem);
-            }
-
-            if (_eventData == null || _eventSystem == null)
+            if (currentEventSystem == null)
             {
                 return;
+            }
+
+            if (!ReferenceEquals(_eventSystem, currentEventSystem))
+            {
+                _eventSystem = currentEventSystem;
+                _eventData = new BaseEventData(currentEventSystem);
             }
 
             _submitHandler.OnSubmit(_eventData);
@@ -95,28 +71,6 @@ namespace UnityEngine.UI
             {
                 _component = submitHandler;
             }
-        }
-
-        private void CacheTarget()
-        {
-            _submitHandler = _component as ISubmitHandler;
-        }
-
-        private void CacheEventData()
-        {
-            CacheEventData(EventSystem.current);
-        }
-
-        private void CacheEventData(EventSystem eventSystem)
-        {
-            _eventSystem = eventSystem;
-            if (_eventSystem == null)
-            {
-                _eventData = null;
-                return;
-            }
-
-            _eventData = new BaseEventData(_eventSystem);
         }
     }
 }

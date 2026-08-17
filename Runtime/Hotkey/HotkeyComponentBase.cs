@@ -40,6 +40,11 @@ namespace UnityEngine.UI
         public UIHolderObjectBase HotkeyHolder => _holder;
         public bool HotkeyConsumesInput => _hotkeyConsumesInput;
 
+        internal bool IsRegistered;
+        internal InputAction RegisteredAction;
+        internal UIHolderObjectBase RegisteredHolder;
+        internal EHotkeyPressType RegisteredPressType;
+
         protected virtual void Reset()
         {
             AutoAssignHolder();
@@ -61,21 +66,10 @@ namespace UnityEngine.UI
             this.UnBindHotKey();
         }
 
-        protected virtual void OnDestroy()
-        {
-            this.UnBindHotKey();
-        }
-
 #if UNITY_EDITOR
         protected virtual void OnValidate()
         {
             AutoAssignHolder();
-
-            if (Application.isPlaying && isActiveAndEnabled)
-            {
-                this.UnBindHotKey();
-                this.BindHotKey();
-            }
         }
 #endif
 
@@ -83,11 +77,6 @@ namespace UnityEngine.UI
 
         protected void AutoAssignHolder()
         {
-            if (_holder != null && _holder.IsValid())
-            {
-                return;
-            }
-
             _holder = GetComponentInParent<UIHolderObjectBase>(true);
         }
     }
