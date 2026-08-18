@@ -50,11 +50,6 @@ namespace UnityEngine.UI
             AutoAssignHolder();
         }
 
-        protected virtual void Awake()
-        {
-            AutoAssignHolder();
-        }
-
         protected virtual void OnEnable()
         {
             AutoAssignHolder();

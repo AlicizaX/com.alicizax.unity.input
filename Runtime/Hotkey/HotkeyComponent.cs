@@ -18,9 +18,8 @@ namespace UnityEngine.UI
             AutoAssignTarget();
         }
 
-        protected override void Awake()
+        private void Awake()
         {
-            base.Awake();
             AutoAssignTarget();
             _submitHandler = _component as ISubmitHandler;
         }

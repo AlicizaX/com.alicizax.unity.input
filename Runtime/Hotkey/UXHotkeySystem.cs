@@ -226,7 +226,6 @@ namespace UnityEngine.UI
         private static readonly Predicate<UIHolderObjectBase> _hotkeyFocusPredicate = IsHotkeyFocusHolder;
 
         private static ulong _activationSerial;
-        private static bool _hierarchyDirty = true;
         private static HotkeyAppHookRunner _appHookRunner;
 
 #if UNITY_EDITOR
@@ -244,7 +243,6 @@ namespace UnityEngine.UI
             _scopes.Clear();
             _scopeList.Clear();
             _activationSerial = 0;
-            _hierarchyDirty = true;
             DestroyAppHooks();
         }
 #endif
@@ -279,8 +277,16 @@ namespace UnityEngine.UI
                 return;
             }
 
-            Object.DestroyImmediate(_appHookRunner.gameObject);
+            GameObject hookObject = _appHookRunner.gameObject;
             _appHookRunner = null;
+            if (Application.isPlaying)
+            {
+                Object.Destroy(hookObject);
+            }
+            else
+            {
+                Object.DestroyImmediate(hookObject);
+            }
         }
 
         private sealed class HotkeyAppHookRunner : MonoBehaviour
@@ -319,7 +325,6 @@ namespace UnityEngine.UI
                 return;
             }
 
-            EnsureAppHooks();
             UnregisterHotkey(trigger);
 
             HotkeyScope scope = GetOrCreateScope(holder);
@@ -361,32 +366,25 @@ namespace UnityEngine.UI
                 return false;
             }
 
-            resolvePath = BuildActionPath(referenceAction);
-            if (string.IsNullOrEmpty(resolvePath)
-                || !InputActionProvider.TryResolveAction(resolvePath, out InputAction providerAction)
-                || providerAction == null)
+            InputActionMap map = referenceAction.actionMap;
+            if (map == null || string.IsNullOrEmpty(map.name) || string.IsNullOrEmpty(referenceAction.name))
             {
                 return false;
             }
 
-            inputAction = providerAction;
-            return true;
-        }
-
-        private static string BuildActionPath(InputAction action)
-        {
-            InputActionMap map = action.actionMap;
-            if (map != null && !string.IsNullOrEmpty(map.name) && !string.IsNullOrEmpty(action.name))
+            resolvePath = map.name + "/" + referenceAction.name;
+            if (!InputActionProvider.TryResolveAction(resolvePath, out inputAction))
             {
-                return map.name + "/" + action.name;
+                inputAction = null;
+                return false;
             }
 
-            return action.name;
+            return true;
         }
 
         internal static void UnregisterHotkey(HotkeyComponentBase trigger)
         {
-            if (trigger == null || !trigger.IsRegistered)
+            if ((object)trigger == null || !trigger.IsRegistered)
             {
                 return;
             }
@@ -498,7 +496,6 @@ namespace UnityEngine.UI
             scope.ListIndex = _scopeList.Count;
             _scopeList.Add(scope);
             _scopes[holder] = scope;
-            _hierarchyDirty = true;
             return scope;
         }
 
@@ -514,7 +511,6 @@ namespace UnityEngine.UI
             }
 
             RemoveScopeFromList(scope);
-            _hierarchyDirty = true;
         }
 
         private static void RemoveScopeFromList(HotkeyScope scope)
@@ -599,6 +595,7 @@ namespace UnityEngine.UI
                     Subscribe(action, pressType);
                 }
 
+                EnsureAppHooks();
                 count++;
                 return;
             }
@@ -612,6 +609,10 @@ namespace UnityEngine.UI
             if (state.Total == 0)
             {
                 _actions.Remove(action);
+                if (_actions.Count == 0)
+                {
+                    DestroyAppHooks();
+                }
             }
         }
 
@@ -702,7 +703,7 @@ namespace UnityEngine.UI
                 return;
             }
 
-            RebuildHierarchyIfDirty();
+            RefreshHierarchies();
             state.HasPressTarget = true;
             state.FocusHolder = focusHolder;
             state.LeafScope = FindTopScopeInsideHolder(focusHolder);
@@ -802,19 +803,12 @@ namespace UnityEngine.UI
             return registration.ConsumesInput;
         }
 
-        private static void RebuildHierarchyIfDirty()
+        private static void RefreshHierarchies()
         {
-            if (!_hierarchyDirty)
-            {
-                return;
-            }
-
             for (int i = 0; i < _scopeList.Count; i++)
             {
                 _scopeList[i].RefreshHierarchy();
             }
-
-            _hierarchyDirty = false;
         }
 
         private static HotkeyScope FindTopScopeInsideHolder(UIHolderObjectBase focusHolder)
