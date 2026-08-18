@@ -362,14 +362,9 @@ namespace AlicizaX.UI.UXNavigation
 
         private static void SetSelected(EventSystem eventSystem, GameObject selected)
         {
-            UXSelectionAudio.BeginSuppress();
-            try
+            using (new UXFocusChange.Scope(UXFocusChange.Cause.Programmatic))
             {
                 eventSystem.SetSelectedGameObject(selected);
-            }
-            finally
-            {
-                UXSelectionAudio.EndSuppress();
             }
         }
 
