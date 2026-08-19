@@ -38,10 +38,17 @@ public sealed class InputGlyphDatabaseEditor : Editor
         InputGlyphDatabaseWindow.OpenFromAsset((InputGlyphDatabase)target);
     }
 
+#if UNITY_6000_5_OR_NEWER
+    [OnOpenAsset(0)]
+    private static bool OpenAsset(EntityId instanceID, int line)
+    {
+        InputGlyphDatabase database = EditorUtility.EntityIdToObject(instanceID) as InputGlyphDatabase;
+#else
     [OnOpenAsset(0)]
     private static bool OpenAsset(int instanceID, int line)
     {
         InputGlyphDatabase database = EditorUtility.InstanceIDToObject(instanceID) as InputGlyphDatabase;
+#endif
         if (database == null)
         {
             return false;
