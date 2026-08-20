@@ -31,9 +31,9 @@ namespace AlicizaX.UI.UXNavigation
         private bool _navigationSuppressed;
         private int _cachedHierarchyDepth = -1;
         private int _runtimeSelectableCount;
-        private int[] _bakedSelectableHashIds = System.Array.Empty<int>();
+        private ulong[] _bakedSelectableHashIds = System.Array.Empty<ulong>();
         private int[] _bakedSelectableHashIndices = System.Array.Empty<int>();
-        private int[] _runtimeSelectableHashIds = System.Array.Empty<int>();
+        private ulong[] _runtimeSelectableHashIds = System.Array.Empty<ulong>();
         private int[] _runtimeSelectableHashIndices = System.Array.Empty<int>();
         private bool _selectableSetDirty = true;
         private bool _selectableAvailabilityDirty = true;
@@ -497,7 +497,7 @@ namespace AlicizaX.UI.UXNavigation
             }
 
             RefreshSelectableHashesIfDirty();
-            int instanceId = UnityObjectId.Get(selectable);
+            ulong instanceId = UnityObjectId.Get(selectable);
             return FindHashIndex(_bakedSelectableHashIds, _bakedSelectableHashIndices, instanceId) >= 0
                    || FindHashIndex(_runtimeSelectableHashIds, _runtimeSelectableHashIndices, instanceId) >= 0;
         }
@@ -515,7 +515,7 @@ namespace AlicizaX.UI.UXNavigation
             }
 
             RefreshSelectableHashesIfDirty();
-            int instanceId = UnityObjectId.Get(selectable);
+            ulong instanceId = UnityObjectId.Get(selectable);
             if (FindHashIndex(_bakedSelectableHashIds, _bakedSelectableHashIndices, instanceId) >= 0)
             {
                 return true;
@@ -624,14 +624,14 @@ namespace AlicizaX.UI.UXNavigation
         private void CreateBakedHash(int itemCapacity)
         {
             int hashCapacity = GetHashCapacity(itemCapacity);
-            _bakedSelectableHashIds = hashCapacity > 0 ? new int[hashCapacity] : System.Array.Empty<int>();
+            _bakedSelectableHashIds = hashCapacity > 0 ? new ulong[hashCapacity] : System.Array.Empty<ulong>();
             _bakedSelectableHashIndices = hashCapacity > 0 ? new int[hashCapacity] : System.Array.Empty<int>();
         }
 
         private void CreateRuntimeHash(int itemCapacity)
         {
             int hashCapacity = GetHashCapacity(itemCapacity);
-            _runtimeSelectableHashIds = hashCapacity > 0 ? new int[hashCapacity] : System.Array.Empty<int>();
+            _runtimeSelectableHashIds = hashCapacity > 0 ? new ulong[hashCapacity] : System.Array.Empty<ulong>();
             _runtimeSelectableHashIndices = hashCapacity > 0 ? new int[hashCapacity] : System.Array.Empty<int>();
         }
 
@@ -652,7 +652,7 @@ namespace AlicizaX.UI.UXNavigation
             return hashCapacity;
         }
 
-        private static void ClearHash(int[] ids, int[] indices)
+        private static void ClearHash(ulong[] ids, int[] indices)
         {
             if (ids == null || indices == null)
             {
@@ -666,7 +666,7 @@ namespace AlicizaX.UI.UXNavigation
             }
         }
 
-        private static int FindHashIndex(int[] ids, int[] indices, int instanceId)
+        private static int FindHashIndex(ulong[] ids, int[] indices, ulong instanceId)
         {
             if (ids == null || indices == null || ids.Length == 0 || instanceId == 0)
             {
@@ -674,10 +674,10 @@ namespace AlicizaX.UI.UXNavigation
             }
 
             int mask = ids.Length - 1;
-            int index = instanceId & mask;
+            int index = (int)instanceId & mask;
             for (int i = 0; i < ids.Length; i++)
             {
-                int storedId = ids[index];
+                ulong storedId = ids[index];
                 if (storedId == 0)
                 {
                     return InvalidIndex;
@@ -694,7 +694,7 @@ namespace AlicizaX.UI.UXNavigation
             return InvalidIndex;
         }
 
-        private static void AddHash(int[] ids, int[] indices, int instanceId, int selectableIndex)
+        private static void AddHash(ulong[] ids, int[] indices, ulong instanceId, int selectableIndex)
         {
             if (ids == null || indices == null || ids.Length == 0 || instanceId == 0)
             {
@@ -702,10 +702,10 @@ namespace AlicizaX.UI.UXNavigation
             }
 
             int mask = ids.Length - 1;
-            int index = instanceId & mask;
+            int index = (int)instanceId & mask;
             for (int i = 0; i < ids.Length; i++)
             {
-                int storedId = ids[index];
+                ulong storedId = ids[index];
                 if (storedId == 0 || storedId == instanceId)
                 {
                     ids[index] = instanceId;

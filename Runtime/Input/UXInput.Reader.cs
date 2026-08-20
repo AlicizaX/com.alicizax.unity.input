@@ -45,7 +45,7 @@ public static partial class UXInput
             public readonly InputAction Action;
             public readonly string ActionName;
             public readonly string CompositePartName;
-            public readonly int OwnerId;
+            public readonly ulong OwnerId;
             public readonly string OwnerKey;
             public readonly bool BoolValue;
 
@@ -54,7 +54,7 @@ public static partial class UXInput
                 InputAction action,
                 string actionName,
                 string compositePartName,
-                int ownerId,
+                ulong ownerId,
                 string ownerKey,
                 bool boolValue)
             {
@@ -283,7 +283,7 @@ public static partial class UXInput
         /// <param name="ownerId">用于隔离一次触发状态的拥有者 ID。</param>
         /// <param name="action">要读取按下状态的输入动作。</param>
         /// <returns>动作在当前拥有者 ID 状态下本次按下周期首次按下时返回 true，否则返回 false。</returns>
-        public static bool ReadPressedOnce(int ownerId, InputAction action)
+        public static bool ReadPressedOnce(ulong ownerId, InputAction action)
         {
             return ReadButtonOnceInternal(action, null, null, ownerId, null, ReadPressedInternal(action), ReadTraceKind.PressedOnce);
         }
@@ -294,7 +294,7 @@ public static partial class UXInput
         /// <param name="ownerId">用于隔离一次触发状态的拥有者 ID。</param>
         /// <param name="actionName">要读取按下状态的输入动作名称。</param>
         /// <returns>动作在当前拥有者 ID 状态下本次按下周期首次按下时返回 true，否则返回 false。</returns>
-        public static bool ReadPressedOnce(int ownerId, string actionName)
+        public static bool ReadPressedOnce(ulong ownerId, string actionName)
         {
             InputAction action = ResolveAction(actionName);
             return ReadButtonOnceInternal(action, actionName, null, ownerId, null, ReadPressedInternal(action), ReadTraceKind.PressedOnce);
@@ -351,7 +351,7 @@ public static partial class UXInput
         /// <param name="ownerId">用于隔离切换状态的拥有者 ID。</param>
         /// <param name="action">要读取按下状态的输入动作。</param>
         /// <returns>动作触发后当前缓存的切换状态。</returns>
-        public static bool ReadPressedToggle(int ownerId, InputAction action)
+        public static bool ReadPressedToggle(ulong ownerId, InputAction action)
         {
             return ReadButtonToggleInternal(action, null, null, ownerId, null, ReadPressedInternal(action), ReadTraceKind.PressedToggle);
         }
@@ -362,7 +362,7 @@ public static partial class UXInput
         /// <param name="ownerId">用于隔离切换状态的拥有者 ID。</param>
         /// <param name="actionName">要读取按下状态的输入动作名称。</param>
         /// <returns>动作触发后当前缓存的切换状态。</returns>
-        public static bool ReadPressedToggle(int ownerId, string actionName)
+        public static bool ReadPressedToggle(ulong ownerId, string actionName)
         {
             InputAction action = ResolveAction(actionName);
             return ReadButtonToggleInternal(action, actionName, null, ownerId, null, ReadPressedInternal(action), ReadTraceKind.PressedToggle);
@@ -419,7 +419,7 @@ public static partial class UXInput
         /// <param name="ownerId">用于隔离一次触发状态的拥有者 ID。</param>
         /// <param name="action">要读取的按钮类型输入动作。</param>
         /// <returns>按钮动作在当前拥有者 ID 状态下本次按下周期首次按下时返回 true，否则返回 false。</returns>
-        public static bool ReadButtonOnce(int ownerId, InputAction action)
+        public static bool ReadButtonOnce(ulong ownerId, InputAction action)
         {
             return ReadButtonOnceInternal(action, null, null, ownerId, null, ReadButtonInternal(action), ReadTraceKind.ButtonOnce);
         }
@@ -430,7 +430,7 @@ public static partial class UXInput
         /// <param name="ownerId">用于隔离一次触发状态的拥有者 ID。</param>
         /// <param name="actionName">要读取的按钮类型输入动作名称。</param>
         /// <returns>按钮动作在当前拥有者 ID 状态下本次按下周期首次按下时返回 true，否则返回 false。</returns>
-        public static bool ReadButtonOnce(int ownerId, string actionName)
+        public static bool ReadButtonOnce(ulong ownerId, string actionName)
         {
             InputAction action = ResolveAction(actionName);
             return ReadButtonOnceInternal(action, actionName, null, ownerId, null, ReadButtonInternal(action), ReadTraceKind.ButtonOnce);
@@ -487,7 +487,7 @@ public static partial class UXInput
         /// <param name="ownerId">用于隔离切换状态的拥有者 ID。</param>
         /// <param name="action">要读取的按钮类型输入动作。</param>
         /// <returns>按钮动作触发后当前缓存的切换状态。</returns>
-        public static bool ReadButtonToggle(int ownerId, InputAction action)
+        public static bool ReadButtonToggle(ulong ownerId, InputAction action)
         {
             return ReadButtonToggleInternal(action, null, null, ownerId, null, ReadButtonInternal(action), ReadTraceKind.ButtonToggle);
         }
@@ -498,7 +498,7 @@ public static partial class UXInput
         /// <param name="ownerId">用于隔离切换状态的拥有者 ID。</param>
         /// <param name="actionName">要读取的按钮类型输入动作名称。</param>
         /// <returns>按钮动作触发后当前缓存的切换状态。</returns>
-        public static bool ReadButtonToggle(int ownerId, string actionName)
+        public static bool ReadButtonToggle(ulong ownerId, string actionName)
         {
             InputAction action = ResolveAction(actionName);
             return ReadButtonToggleInternal(action, actionName, null, ownerId, null, ReadButtonInternal(action), ReadTraceKind.ButtonToggle);
@@ -593,7 +593,7 @@ public static partial class UXInput
         /// <param name="action">包含组合绑定的输入动作。</param>
         /// <param name="compositePartName">要读取的组合绑定部分名称。</param>
         /// <returns>组合绑定部分在当前拥有者 ID 状态下本次按下周期首次按下时返回 true，否则返回 false。</returns>
-        public static bool ReadCompositePartButtonOnce(int ownerId, InputAction action, string compositePartName)
+        public static bool ReadCompositePartButtonOnce(ulong ownerId, InputAction action, string compositePartName)
         {
             return ReadButtonOnceInternal(
                 action,
@@ -612,7 +612,7 @@ public static partial class UXInput
         /// <param name="actionName">包含组合绑定的输入动作名称。</param>
         /// <param name="compositePartName">要读取的组合绑定部分名称。</param>
         /// <returns>组合绑定部分在当前拥有者 ID 状态下本次按下周期首次按下时返回 true，否则返回 false。</returns>
-        public static bool ReadCompositePartButtonOnce(int ownerId, string actionName, string compositePartName)
+        public static bool ReadCompositePartButtonOnce(ulong ownerId, string actionName, string compositePartName)
         {
             InputAction action = ResolveAction(actionName);
             return ReadButtonOnceInternal(
@@ -695,7 +695,7 @@ public static partial class UXInput
         /// <param name="action">包含组合绑定的输入动作。</param>
         /// <param name="compositePartName">要读取的组合绑定部分名称。</param>
         /// <returns>组合绑定部分触发后当前缓存的切换状态。</returns>
-        public static bool ReadCompositePartButtonToggle(int ownerId, InputAction action, string compositePartName)
+        public static bool ReadCompositePartButtonToggle(ulong ownerId, InputAction action, string compositePartName)
         {
             return ReadButtonToggleInternal(
                 action,
@@ -714,7 +714,7 @@ public static partial class UXInput
         /// <param name="actionName">包含组合绑定的输入动作名称。</param>
         /// <param name="compositePartName">要读取的组合绑定部分名称。</param>
         /// <returns>组合绑定部分触发后当前缓存的切换状态。</returns>
-        public static bool ReadCompositePartButtonToggle(int ownerId, string actionName, string compositePartName)
+        public static bool ReadCompositePartButtonToggle(ulong ownerId, string actionName, string compositePartName)
         {
             InputAction action = ResolveAction(actionName);
             return ReadButtonToggleInternal(
@@ -894,7 +894,7 @@ public static partial class UXInput
             InputAction action,
             string actionName,
             string compositePartName,
-            int ownerId,
+            ulong ownerId,
             string ownerKey,
             out T value) where T : struct
         {
@@ -925,7 +925,7 @@ public static partial class UXInput
             InputAction action,
             string actionName,
             string compositePartName,
-            int ownerId,
+            ulong ownerId,
             string ownerKey,
             bool isPressed,
             ReadTraceKind traceKind,
@@ -959,7 +959,7 @@ public static partial class UXInput
             InputAction action,
             string actionName,
             string compositePartName,
-            int ownerId,
+            ulong ownerId,
             string ownerKey,
             bool isPressed,
             ReadTraceKind traceKind)
@@ -1040,7 +1040,7 @@ public static partial class UXInput
             InputAction action,
             string actionName,
             string compositePartName,
-            int ownerId,
+            ulong ownerId,
             string ownerKey,
             bool boolValue)
         {
@@ -1058,7 +1058,7 @@ public static partial class UXInput
             InputAction action,
             string actionName,
             string compositePartName,
-            int ownerId,
+            ulong ownerId,
             string ownerKey,
             bool boolValue)
         {
@@ -1145,7 +1145,7 @@ public static partial class UXInput
             private Guid[] _actionIds;
             private string[] _actionNames;
             private string[] _compositePartNames;
-            private int[] _ownerIds;
+            private ulong[] _ownerIds;
             private string[] _ownerKeys;
             private int[] _hashes;
             private bool[] _occupied;
@@ -1162,7 +1162,7 @@ public static partial class UXInput
                 _actionIds = new Guid[resolvedCapacity];
                 _actionNames = new string[resolvedCapacity];
                 _compositePartNames = new string[resolvedCapacity];
-                _ownerIds = new int[resolvedCapacity];
+                _ownerIds = new ulong[resolvedCapacity];
                 _ownerKeys = new string[resolvedCapacity];
                 _hashes = new int[resolvedCapacity];
                 _occupied = new bool[resolvedCapacity];
@@ -1197,7 +1197,7 @@ public static partial class UXInput
                 in Guid actionId,
                 string actionName,
                 string compositePartName,
-                int ownerId,
+                ulong ownerId,
                 string ownerKey)
             {
                 int hash = BuildHash(in actionId, actionName, compositePartName, ownerId, ownerKey);
@@ -1217,7 +1217,7 @@ public static partial class UXInput
                 in Guid actionId,
                 string actionName,
                 string compositePartName,
-                int ownerId,
+                ulong ownerId,
                 string ownerKey)
             {
                 if ((_count + 1) * 2 >= _occupied.Length)
@@ -1248,7 +1248,7 @@ public static partial class UXInput
                 in Guid actionId,
                 string actionName,
                 string compositePartName,
-                int ownerId,
+                ulong ownerId,
                 string ownerKey)
             {
                 int hash = BuildHash(in actionId, actionName, compositePartName, ownerId, ownerKey);
@@ -1307,7 +1307,7 @@ public static partial class UXInput
                 in Guid actionId,
                 string actionName,
                 string compositePartName,
-                int ownerId,
+                ulong ownerId,
                 string ownerKey)
             {
                 int slot = hash & _mask;
@@ -1340,7 +1340,7 @@ public static partial class UXInput
                 in Guid actionId,
                 string actionName,
                 string compositePartName,
-                int ownerId,
+                ulong ownerId,
                 string ownerKey)
             {
                 return _actionIds[slot].Equals(actionId)
@@ -1358,7 +1358,7 @@ public static partial class UXInput
                 in Guid actionId,
                 string actionName,
                 string compositePartName,
-                int ownerId,
+                ulong ownerId,
                 string ownerKey)
             {
                 int slot = hash & _mask;
@@ -1391,7 +1391,7 @@ public static partial class UXInput
                     Guid actionId = _actionIds[next];
                     string actionName = _actionNames[next];
                     string compositePartName = _compositePartNames[next];
-                    int ownerId = _ownerIds[next];
+                    ulong ownerId = _ownerIds[next];
                     string ownerKey = _ownerKeys[next];
                     int hash = _hashes[next];
                     ClearSlot(next);
@@ -1423,7 +1423,7 @@ public static partial class UXInput
                 Guid[] oldActionIds = _actionIds;
                 string[] oldActionNames = _actionNames;
                 string[] oldCompositePartNames = _compositePartNames;
-                int[] oldOwnerIds = _ownerIds;
+                ulong[] oldOwnerIds = _ownerIds;
                 string[] oldOwnerKeys = _ownerKeys;
                 int[] oldHashes = _hashes;
                 bool[] oldOccupied = _occupied;
@@ -1431,7 +1431,7 @@ public static partial class UXInput
                 _actionIds = new Guid[capacity];
                 _actionNames = new string[capacity];
                 _compositePartNames = new string[capacity];
-                _ownerIds = new int[capacity];
+                _ownerIds = new ulong[capacity];
                 _ownerKeys = new string[capacity];
                 _hashes = new int[capacity];
                 _occupied = new bool[capacity];
@@ -1626,7 +1626,7 @@ public static partial class UXInput
             in Guid actionId,
             string actionName,
             string compositePartName,
-            int ownerId,
+            ulong ownerId,
             string ownerKey)
         {
             unchecked
@@ -1635,7 +1635,7 @@ public static partial class UXInput
                 hash = (hash * 31) + actionId.GetHashCode();
                 hash = (hash * 31) + StableHash(Normalize(actionName));
                 hash = (hash * 31) + StableHash(Normalize(compositePartName));
-                hash = (hash * 31) + ownerId;
+                hash = (hash * 31) + ownerId.GetHashCode();
                 hash = (hash * 31) + StableHash(Normalize(ownerKey));
                 return hash == 0 ? 1 : hash;
             }
