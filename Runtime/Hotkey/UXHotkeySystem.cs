@@ -590,24 +590,32 @@ namespace UnityEngine.UI
             ref int count = ref CountRef(state, pressType);
             if (add)
             {
-                if (count == 0)
+                if (state.Total == 0)
                 {
-                    Subscribe(action, pressType);
+                    Subscribe(action, EHotkeyPressType.Started);
+                    Subscribe(action, EHotkeyPressType.Canceled);
+                    EnsureAppHooks();
                 }
 
-                EnsureAppHooks();
+                if (pressType == EHotkeyPressType.Performed && count == 0)
+                {
+                    Subscribe(action, EHotkeyPressType.Performed);
+                }
+
                 count++;
                 return;
             }
 
             count--;
-            if (count == 0)
+            if (pressType == EHotkeyPressType.Performed && count == 0)
             {
-                Unsubscribe(action, pressType);
+                Unsubscribe(action, EHotkeyPressType.Performed);
             }
 
             if (state.Total == 0)
             {
+                Unsubscribe(action, EHotkeyPressType.Started);
+                Unsubscribe(action, EHotkeyPressType.Canceled);
                 _actions.Remove(action);
                 if (_actions.Count == 0)
                 {
@@ -672,25 +680,37 @@ namespace UnityEngine.UI
             if (pressType == EHotkeyPressType.Started)
             {
                 CapturePressTarget(state);
-            }
-            else if (!state.HasPressTarget)
-            {
-                if (pressType == EHotkeyPressType.Canceled)
+                if (state.Started > 0)
                 {
-                    return;
+                    TryDispatchToLockedTarget(state, action, pressType);
                 }
 
+                return;
+            }
+
+            if (pressType == EHotkeyPressType.Canceled)
+            {
+                if (state.HasPressTarget)
+                {
+                    if (state.Canceled > 0)
+                    {
+                        TryDispatchToLockedTarget(state, action, pressType);
+                    }
+
+                    state.HasPressTarget = false;
+                    state.FocusHolder = null;
+                    state.LeafScope = null;
+                }
+
+                return;
+            }
+
+            if (!state.HasPressTarget)
+            {
                 CapturePressTarget(state);
             }
 
             TryDispatchToLockedTarget(state, action, pressType);
-
-            if (pressType == EHotkeyPressType.Canceled)
-            {
-                state.HasPressTarget = false;
-                state.FocusHolder = null;
-                state.LeafScope = null;
-            }
         }
 
         private static void CapturePressTarget(ActionState state)
