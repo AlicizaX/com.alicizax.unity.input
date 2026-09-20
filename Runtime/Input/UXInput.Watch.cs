@@ -480,7 +480,12 @@ public static partial class UXInput
 
         private static bool IsMeaningfulControl(InputControl control)
         {
-            if (control == null || control.device == null || control.synthetic || !IsRelevantDevice(control.device))
+            if (control == null || control.device == null || !IsRelevantDevice(control.device))
+            {
+                return false;
+            }
+
+            if (control.synthetic && !(control.device is Keyboard keyboard && control == keyboard.anyKey))
             {
                 return false;
             }

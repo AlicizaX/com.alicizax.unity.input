@@ -40,6 +40,7 @@ namespace AlicizaX.UI.UXNavigation
         private int _availableSelectableCount;
         private Selectable _firstAvailableSelectable;
         private UIHolderObjectBase _subscribedHolder;
+        private bool _refreshAfterEnable;
 
         internal int RuntimeIndex { get; set; } = InvalidIndex;
         internal ulong ActivationSerial { get; set; }
@@ -108,12 +109,26 @@ namespace AlicizaX.UI.UXNavigation
 
         private void OnEnable()
         {
+            _refreshAfterEnable = true;
+            MarkSelectableAvailabilityDirty();
+            UXNavigationSystem.RequestRefresh(true);
+        }
+
+        private void LateUpdate()
+        {
+            if (!_refreshAfterEnable)
+            {
+                return;
+            }
+
+            _refreshAfterEnable = false;
             MarkSelectableAvailabilityDirty();
             UXNavigationSystem.RequestRefresh(true);
         }
 
         private void OnDisable()
         {
+            _refreshAfterEnable = false;
             MarkSelectableAvailabilityDirty();
             UXNavigationSystem.RequestRefresh(true);
         }

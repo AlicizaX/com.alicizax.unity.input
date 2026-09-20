@@ -1,0 +1,8 @@
+{
+    "name": "AlicizaX.Input.Navigation.Tests",
+    "references": ["AlicizaX.Input", "AlicizaX.Framework.Runtime", "Unity.ugui", "Unity.InputSystem"],
+    "optionalUnityReferences": ["TestAssemblies"],
+    "autoReferenced": false,
+    "defineConstraints": ["INPUTSYSTEM_SUPPORT"],
+    "versionDefines": [{ "name": "com.unity.inputsystem", "expression": "1.0.0", "define": "INPUTSYSTEM_SUPPORT" }]
+}

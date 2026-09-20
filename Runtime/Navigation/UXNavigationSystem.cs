@@ -192,31 +192,34 @@ namespace AlicizaX.UI.UXNavigation
             }
 
             _isFlushingState = true;
-            CaptureTopScopeSelection();
-
-            UXNavigationScope highestOccluder;
-            if (_dirty)
+            try
             {
-                UXNavigationScope newTopScope = ResolveScopes(out highestOccluder);
-                _dirty = false;
-                if (!ReferenceEquals(_topScope, newTopScope))
+                do
                 {
-                    _topScope = newTopScope;
-                }
+                    CaptureTopScopeSelection();
+                    UXNavigationScope highestOccluder;
+                    if (_dirty)
+                    {
+                        _dirty = false;
+                        _topScope = ResolveScopes(out highestOccluder);
+                    }
+                    else
+                    {
+                        highestOccluder = FindHighestOccluder();
+                    }
+
+                    ApplyScopeSuppression(highestOccluder);
+
+                    if (ensureSelection && ShouldEnsureSelection())
+                    {
+                        EnsureNavigationSelection();
+                    }
+                } while (_dirty && _initialized);
             }
-            else
+            finally
             {
-                highestOccluder = FindHighestOccluder();
+                _isFlushingState = false;
             }
-
-            ApplyScopeSuppression(highestOccluder);
-
-            if (ensureSelection && ShouldEnsureSelection())
-            {
-                EnsureNavigationSelection();
-            }
-
-            _isFlushingState = false;
         }
 
         private static UXNavigationScope ResolveScopes(out UXNavigationScope highestOccluder)
@@ -251,7 +254,8 @@ namespace AlicizaX.UI.UXNavigation
                 }
             }
 
-            if (highestOccluder != null && !highestOccluder.IsAvailable)
+            if (highestOccluder != null && !highestOccluder.IsAvailable &&
+                (bestScope == null || IsHigherPriority(highestOccluder, bestScope)))
             {
                 return null;
             }
