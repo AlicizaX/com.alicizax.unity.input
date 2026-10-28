@@ -1,5 +1,5 @@
-﻿#if INPUTSYSTEM_SUPPORT
-using AlicizaX;
+#if INPUTSYSTEM_SUPPORT
+using System;
 using AlicizaX.UI.Runtime;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -12,7 +12,7 @@ namespace AlicizaX.UI.UXNavigation
         private const int ScopeCapacity = 128;
         private const int InvalidIndex = -1;
 
-        private static readonly UXNavigationScope[] _scopes = new UXNavigationScope[ScopeCapacity];
+        private static UXNavigationScope[] _scopes = new UXNavigationScope[ScopeCapacity];
         private static int _scopeCount;
 
         private static UXNavigationScope _topScope;
@@ -124,12 +124,9 @@ namespace AlicizaX.UI.UXNavigation
                 return;
             }
 
-            if (_scopeCount >= _scopes.Length)
+            if (_scopeCount == _scopes.Length)
             {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-                Log.Error("UXNavigationSystem scope capacity exceeded.");
-#endif
-                return;
+                Array.Resize(ref _scopes, _scopes.Length * 2);
             }
 
             int index = _scopeCount++;
@@ -168,10 +165,14 @@ namespace AlicizaX.UI.UXNavigation
             int last = --_scopeCount;
             UXNavigationScope movedScope = _scopes[last];
             _scopes[last] = null;
-            if (index != last)
+            if (index != last && movedScope != null)
             {
                 _scopes[index] = movedScope;
                 movedScope.RuntimeIndex = index;
+            }
+            else if (index != last)
+            {
+                _scopes[index] = null;
             }
 
             _dirty = true;
@@ -197,17 +198,8 @@ namespace AlicizaX.UI.UXNavigation
                 do
                 {
                     CaptureTopScopeSelection();
-                    UXNavigationScope highestOccluder;
-                    if (_dirty)
-                    {
-                        _dirty = false;
-                        _topScope = ResolveScopes(out highestOccluder);
-                    }
-                    else
-                    {
-                        highestOccluder = FindHighestOccluder();
-                    }
-
+                    _dirty = false;
+                    _topScope = ResolveScopes(out UXNavigationScope highestOccluder);
                     ApplyScopeSuppression(highestOccluder);
 
                     if (ensureSelection && ShouldEnsureSelection())
@@ -261,21 +253,6 @@ namespace AlicizaX.UI.UXNavigation
             }
 
             return bestScope;
-        }
-
-        private static UXNavigationScope FindHighestOccluder()
-        {
-            UXNavigationScope highestOccluder = null;
-            for (int i = 0; i < _scopeCount; i++)
-            {
-                UXNavigationScope scope = _scopes[i];
-                if (scope.IsAlive && scope.BlockLowerScopes && (highestOccluder == null || IsHigherPriority(scope, highestOccluder)))
-                {
-                    highestOccluder = scope;
-                }
-            }
-
-            return highestOccluder;
         }
 
         private static bool IsScopeAlive(UXNavigationScope scope)

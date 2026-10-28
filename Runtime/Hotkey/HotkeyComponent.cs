@@ -15,25 +15,19 @@ namespace UnityEngine.UI
         protected override void Reset()
         {
             base.Reset();
-            AutoAssignTarget();
+            ResolveSubmitTarget();
         }
 
         private void Awake()
         {
-            AutoAssignTarget();
-            _submitHandler = _component as ISubmitHandler;
+            ResolveSubmitTarget();
         }
 
 #if UNITY_EDITOR
         protected override void OnValidate()
         {
             base.OnValidate();
-            AutoAssignTarget();
-            _submitHandler = _component as ISubmitHandler;
-            if (_component != null && _submitHandler == null)
-            {
-                _component = null;
-            }
+            ResolveSubmitTarget();
         }
 #endif
 
@@ -59,17 +53,35 @@ namespace UnityEngine.UI
             _submitHandler.OnSubmit(_eventData);
         }
 
-        private void AutoAssignTarget()
+        /// <summary>
+        /// 解析 ISubmitHandler 目标。组件的接口查询不依赖 GetComponent 对接口的支持：
+        /// 先使用显式引用，否则扫描一次组件数组（只在 Awake/编辑期发生）。
+        /// </summary>
+        private void ResolveSubmitTarget()
         {
             if (_component != null)
             {
-                return;
+                _submitHandler = _component as ISubmitHandler;
+                if (_submitHandler != null)
+                {
+                    return;
+                }
+
+                _component = null;
             }
 
-            if (TryGetComponent(typeof(ISubmitHandler), out Component submitHandler))
+            Component[] components = GetComponents<Component>();
+            for (int i = 0; i < components.Length; i++)
             {
-                _component = submitHandler;
+                if (components[i] is ISubmitHandler submitHandler)
+                {
+                    _component = components[i];
+                    _submitHandler = submitHandler;
+                    return;
+                }
             }
+
+            _submitHandler = null;
         }
     }
 }

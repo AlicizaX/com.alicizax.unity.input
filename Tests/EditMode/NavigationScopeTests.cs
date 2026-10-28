@@ -1,4 +1,4 @@
-namespace AlicizaX.UI.UXNavigation.Tests
+namespace AlicizaX.Input.Tests
 {
     public sealed class NavigationScopeTests : NavigationScopeCases { }
 }

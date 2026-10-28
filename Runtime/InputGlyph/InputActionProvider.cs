@@ -2,9 +2,9 @@
 using System.Collections.Generic;
 using AlicizaX;
 using AlicizaX.UI.UXNavigation;
-using Cysharp.Text;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.UI;
 
 [AddComponentMenu("Input/Input Action Provider")]
 [DefaultExecutionOrder(-10000)]
@@ -31,6 +31,21 @@ public sealed class InputActionProvider : MonoBehaviour
         Shutdown(this);
     }
 
+    /// <summary>
+    /// 当前 Provider 使用的输入动作资源。
+    /// </summary>
+    internal static InputActionAsset Actions => _actions;
+
+    internal static void ResetForPlayMode()
+    {
+        ActionLookup.Clear();
+        _actions = null;
+        _owner = null;
+    }
+
+    /// <summary>
+    /// 尝试按完整路径解析动作；未初始化或不存在时返回 false。
+    /// </summary>
     public static bool TryResolveAction(string actionName, out InputAction action)
     {
         if (!string.IsNullOrWhiteSpace(actionName) && ActionLookup.TryGetValue(actionName, out action))
@@ -42,20 +57,20 @@ public sealed class InputActionProvider : MonoBehaviour
         return false;
     }
 
+    /// <summary>
+    /// 按完整路径解析动作；不存在时返回 null，不产生运行时日志（路径合法性由编辑器生成器保证）。
+    /// </summary>
     public static InputAction ResolveAction(string actionName)
     {
-        if (TryResolveAction(actionName, out InputAction action))
-        {
-            return action;
-        }
-
-        Log.Error("[InputActionProvider] Could not find action '{0}'. Use full action path 'MapName/ActionName'.", actionName);
-        return null;
+        return TryResolveAction(actionName, out InputAction action) ? action : null;
     }
 
+    /// <summary>
+    /// 按名称查找动作表；输入资源未初始化时返回 null。
+    /// </summary>
     public static InputActionMap FindActionMap(string mapName, bool throwIfNotFound = false)
     {
-        return _actions.FindActionMap(mapName, throwIfNotFound);
+        return _actions != null ? _actions.FindActionMap(mapName, throwIfNotFound) : null;
     }
 
     private static void Initialize(InputActionProvider owner, InputActionAsset actions, InputGlyphDatabase glyphDatabase)
@@ -87,6 +102,7 @@ public sealed class InputActionProvider : MonoBehaviour
         }
 
         UXNavigationSystem.Shutdown();
+        UXHotkeySystem.Shutdown();
         UXInput.Rebind.Shutdown();
         ClearActions(true);
         UXInput.Glyph.SetDatabase(null);
@@ -131,7 +147,7 @@ public sealed class InputActionProvider : MonoBehaviour
             for (int actionIndex = 0; actionIndex < map.actions.Count; actionIndex++)
             {
                 InputAction action = map.actions[actionIndex];
-                string fullName = ZString.Concat(map.name, "/", action.name);
+                string fullName = map.name + "/" + action.name;
                 ActionLookup[fullName] = action;
             }
         }

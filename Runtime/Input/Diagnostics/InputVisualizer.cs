@@ -1,4 +1,4 @@
-#if INPUTSYSTEM_SUPPORT
+#if INPUTSYSTEM_SUPPORT && (UNITY_EDITOR || DEVELOPMENT_BUILD)
 using System;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -278,11 +278,10 @@ public sealed class InputVisualizer : MonoBehaviour
         string partText = string.IsNullOrEmpty(trace.CompositePartName)
             ? string.Empty
             : string.Concat("/", trace.CompositePartName);
-        string ownerText = GetReaderOwnerText(trace);
         string valueText = IsToggleTrace(trace.Kind) ? string.Concat(" = ", trace.BoolValue) : string.Empty;
 
         AddEntry(
-            string.Concat("Reader: ", trace.Kind, " ", actionName, partText, ownerText, valueText),
+            string.Concat("Reader: ", trace.Kind, " ", actionName, partText, valueText),
             EntryKind.Active);
     }
 
@@ -296,24 +295,13 @@ public sealed class InputVisualizer : MonoBehaviour
                 : string.Concat(mapName, "/", trace.Action.name);
         }
 
-        return trace.ActionName;
-    }
-
-    private static string GetReaderOwnerText(UXInput.Reader.ReadTrace trace)
-    {
-        if (!string.IsNullOrEmpty(trace.OwnerKey))
-        {
-            return string.Concat(" [", trace.OwnerKey, "]");
-        }
-
-        return trace.OwnerId != 0 ? string.Concat(" [", trace.OwnerId, "]") : string.Empty;
+        return null;
     }
 
     private static bool IsToggleTrace(UXInput.Reader.ReadTraceKind kind)
     {
-        return kind == UXInput.Reader.ReadTraceKind.ButtonToggle
-               || kind == UXInput.Reader.ReadTraceKind.PressedToggle
-               || kind == UXInput.Reader.ReadTraceKind.CompositePartButtonToggle;
+        return kind == UXInput.Reader.ReadTraceKind.Toggle
+               || kind == UXInput.Reader.ReadTraceKind.CompositePartToggle;
     }
 
     private bool ShouldLogInputActivity(UXInput.Watch.InputContext context)
@@ -476,6 +464,12 @@ public sealed class InputVisualizer : MonoBehaviour
         if (_stylesInitialized)
         {
             return;
+        }
+
+        if (_backgroundTexture != null)
+        {
+            Destroy(_backgroundTexture);
+            _backgroundTexture = null;
         }
 
         _backgroundTexture = MakeTexture(backgroundColor);

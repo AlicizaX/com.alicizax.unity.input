@@ -18,7 +18,6 @@ public sealed class InputDefineGeneratorWindow : EditorWindow
     [SerializeField] private string outputPath = DefaultOutputPath;
     [SerializeField] private string className = DefaultClassName;
     [SerializeField] private string namespaceName;
-    [SerializeField] private bool includeButtonHelpers = true;
     [SerializeField] private bool includeActionProperties = true;
 
     [MenuItem(MenuPath, false, 81)]
@@ -56,7 +55,6 @@ public sealed class InputDefineGeneratorWindow : EditorWindow
         className = EditorGUILayout.TextField("Class Name", className);
         namespaceName = EditorGUILayout.TextField("Namespace", namespaceName);
         includeActionProperties = EditorGUILayout.Toggle("Action Properties", includeActionProperties);
-        includeButtonHelpers = EditorGUILayout.Toggle("Button Helpers", includeButtonHelpers);
 
         EditorGUILayout.Space(4f);
         EditorGUILayout.BeginHorizontal();
@@ -127,7 +125,6 @@ public sealed class InputDefineGeneratorWindow : EditorWindow
             ClassName = resolvedClassName,
             NamespaceName = namespaceName,
             IncludeActionProperties = includeActionProperties,
-            IncludeButtonHelpers = includeButtonHelpers,
         };
 
         string code = InputDefineCodeGenerator.Generate(actions, options);
@@ -185,7 +182,6 @@ internal static class InputDefineCodeGenerator
         public string ClassName;
         public string NamespaceName;
         public bool IncludeActionProperties;
-        public bool IncludeButtonHelpers;
     }
 
     private enum AccessorKind
@@ -208,11 +204,7 @@ internal static class InputDefineCodeGenerator
         builder.Append(actions != null ? actions.name : "InputActionAsset");
         builder.AppendLine(".");
         builder.AppendLine("//");
-        builder.AppendLine("// 按钮辅助接口说明：");
-        builder.AppendLine("// - Hold：无后缀属性，按钮按住期间每帧为真；值类型输入返回当前向量、浮点数等。");
-        builder.AppendLine("// - Once：单次方法只在按下当帧为真；松开后再次按下可再次触发。");
-        builder.AppendLine("// - Toggle：开关方法每次按下都会切换并保存一个布尔状态。");
-        builder.AppendLine("// - Reset：重置方法用于清除字符串键版本保存的开关状态。");
+        builder.AppendLine("// 边沿/开关读取请使用调用方持有的 UXInput.Reader.ButtonState 字段，避免全局状态泄漏。");
         builder.AppendLine("// </auto-generated>");
         builder.AppendLine("using AlicizaX;");
         builder.AppendLine("using UnityEngine;");
@@ -510,68 +502,6 @@ internal static class InputDefineCodeGenerator
         builder.Append(pathConstant);
         builder.AppendLine(");");
 
-        if (options.IncludeButtonHelpers && accessorKind != AccessorKind.Value)
-        {
-            AppendButtonHelpers(builder, pathConstant, baseName, accessorKind == AccessorKind.Button, usedNames, indent);
-        }
-    }
-
-    private static void AppendButtonHelpers(
-        StringBuilder builder,
-        string pathConstant,
-        string baseName,
-        bool strictButton,
-        HashSet<string> usedNames,
-        int indent)
-    {
-        string onceMethod = MakeUnique(baseName + "Once", usedNames);
-        string toggleMethod = MakeUnique(baseName + "Toggle", usedNames);
-        string resetToggleMethod = MakeUnique("Reset" + baseName + "Toggle", usedNames);
-        string onceReader = strictButton ? "ReadButtonOnce" : "ReadPressedOnce";
-        string toggleReader = strictButton ? "ReadButtonToggle" : "ReadPressedToggle";
-
-        AppendIndent(builder, indent);
-        builder.Append("public static bool ");
-        builder.Append(onceMethod);
-        builder.Append("(UnityEngine.Object owner) => UXInput.Reader.");
-        builder.Append(onceReader);
-        builder.Append("(owner, ");
-        builder.Append(pathConstant);
-        builder.AppendLine(");");
-
-        AppendIndent(builder, indent);
-        builder.Append("public static bool ");
-        builder.Append(onceMethod);
-        builder.Append("(string key) => UXInput.Reader.");
-        builder.Append(onceReader);
-        builder.Append("(key, ");
-        builder.Append(pathConstant);
-        builder.AppendLine(");");
-
-        AppendIndent(builder, indent);
-        builder.Append("public static bool ");
-        builder.Append(toggleMethod);
-        builder.Append("(UnityEngine.Object owner) => UXInput.Reader.");
-        builder.Append(toggleReader);
-        builder.Append("(owner, ");
-        builder.Append(pathConstant);
-        builder.AppendLine(");");
-
-        AppendIndent(builder, indent);
-        builder.Append("public static bool ");
-        builder.Append(toggleMethod);
-        builder.Append("(string key) => UXInput.Reader.");
-        builder.Append(toggleReader);
-        builder.Append("(key, ");
-        builder.Append(pathConstant);
-        builder.AppendLine(");");
-
-        AppendIndent(builder, indent);
-        builder.Append("public static void ");
-        builder.Append(resetToggleMethod);
-        builder.Append("(string key) => UXInput.Reader.ResetToggledButton(key, ");
-        builder.Append(pathConstant);
-        builder.AppendLine(");");
     }
 
     private static AccessorKind ResolveAccessorKind(InputAction action, out string valueType)
@@ -685,7 +615,8 @@ internal static class InputDefineCodeGenerator
         for (int i = 0; i < action.bindings.Count; i++)
         {
             InputBinding binding = action.bindings[i];
-            if (ContainsIgnoreCase(binding.path, pathFragment) || ContainsIgnoreCase(binding.effectivePath, pathFragment))
+            if (InputStringUtility.ContainsIgnoreCase(binding.path, pathFragment)
+                || InputStringUtility.ContainsIgnoreCase(binding.effectivePath, pathFragment))
             {
                 return true;
             }
@@ -694,16 +625,9 @@ internal static class InputDefineCodeGenerator
         return false;
     }
 
-    private static bool ContainsIgnoreCase(string value, string fragment)
-    {
-        return !string.IsNullOrEmpty(value)
-               && !string.IsNullOrEmpty(fragment)
-               && value.IndexOf(fragment, StringComparison.OrdinalIgnoreCase) >= 0;
-    }
-
     private static bool ContainsLooseIgnoreCase(string value, string fragment)
     {
-        return ContainsIgnoreCase(RemoveWhitespace(value), RemoveWhitespace(fragment));
+        return InputStringUtility.ContainsIgnoreCase(RemoveWhitespace(value), RemoveWhitespace(fragment));
     }
 
     private static string RemoveWhitespace(string value)

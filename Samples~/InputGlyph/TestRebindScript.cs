@@ -109,8 +109,10 @@ public sealed class TestRebindScript : MonoBehaviour
 
         string partName = NormalizeCompositePartName();
         bool started = string.IsNullOrEmpty(partName)
-            ? UXInput.Rebind.BeginRebind(resolvedActionName)
-            : UXInput.Rebind.BeginCompositePartRebind(resolvedActionName, partName);
+            ? UXInput.Rebind.Begin(resolvedActionName)
+            : UXInput.Rebind.Begin(
+                resolvedActionName,
+                RebindRequest.Default.WithCompositePart(partName));
 
         if (!started)
         {
@@ -267,11 +269,11 @@ public sealed class TestRebindScript : MonoBehaviour
             string partName = NormalizeCompositePartName();
             if (string.IsNullOrEmpty(partName))
             {
-                UXInput.Rebind.ResetBinding(action);
+                UXInput.Rebind.Reset(action, RebindRequest.Default);
             }
             else
             {
-                UXInput.Rebind.ResetCompositePartBinding(action, partName);
+                UXInput.Rebind.Reset(action, RebindRequest.Default.WithCompositePart(partName));
             }
 
             _hasPendingChange = false;

@@ -1,4 +1,4 @@
-﻿#if INPUTSYSTEM_SUPPORT
+#if INPUTSYSTEM_SUPPORT
 using System.Collections.Generic;
 using AlicizaX.Editor;
 using AlicizaX.UI.Runtime;
@@ -21,7 +21,6 @@ namespace AlicizaX.UI.UXNavigation
         private const float PolicyToggleWidth = 86f;
         private const float CollectButtonSize = 22f;
 
-        private readonly List<Selectable> _selectableBuffer = new List<Selectable>(64);
         private readonly List<GUIContent> _defaultSelectableOptions = new List<GUIContent>(64);
         private int _selectedBakedIndex = -1;
         private bool _bakedListHasKeyboardFocus;
@@ -325,22 +324,18 @@ namespace AlicizaX.UI.UXNavigation
         private void RefreshCurrentScopeBakeData()
         {
             UXNavigationScope scope = (UXNavigationScope)target;
-            RefreshScopeBakeData(scope, serializedObject, _holder, _bakedSelectables, _selectableBuffer);
+            RefreshScopeBakeData(scope, serializedObject, _holder, _bakedSelectables);
         }
 
-        private static readonly List<Selectable> StaticSelectableBuffer = new List<Selectable>(64);
-
-        private static void RefreshScopeBakeData(UXNavigationScope scope, SerializedObject scopeObject, SerializedProperty holder, SerializedProperty bakedSelectables)
-        {
-            RefreshScopeBakeData(scope, scopeObject, holder, bakedSelectables, StaticSelectableBuffer);
-        }
-
-        private static void RefreshScopeBakeData(UXNavigationScope scope, SerializedObject scopeObject, SerializedProperty holder, SerializedProperty bakedSelectables, List<Selectable> scopeEditorBuffer)
+        private static void RefreshScopeBakeData(
+            UXNavigationScope scope,
+            SerializedObject scopeObject,
+            SerializedProperty holder,
+            SerializedProperty bakedSelectables)
         {
             AutoBindHolder(scope, scopeObject, holder);
             Selectable[] allSelectables = scope.GetComponentsInChildren<Selectable>(true);
-            List<Selectable> ownedSelectables = scopeEditorBuffer;
-            ownedSelectables.Clear();
+            var ownedSelectables = new List<Selectable>(allSelectables.Length);
             for (int i = 0; i < allSelectables.Length; i++)
             {
                 Selectable selectable = allSelectables[i];
@@ -459,8 +454,8 @@ namespace AlicizaX.UI.UXNavigation
                 return 1;
             }
 
-            int leftDepth = GetDepth(left);
-            int rightDepth = GetDepth(right);
+            int leftDepth = InputHierarchyUtility.GetDepth(left);
+            int rightDepth = InputHierarchyUtility.GetDepth(right);
             Transform leftCursor = left;
             Transform rightCursor = right;
 
@@ -484,20 +479,6 @@ namespace AlicizaX.UI.UXNavigation
 
             return leftCursor.GetSiblingIndex().CompareTo(rightCursor.GetSiblingIndex());
         }
-
-        private static int GetDepth(Transform transform)
-        {
-            int depth = 0;
-            Transform current = transform;
-            while (current != null)
-            {
-                depth++;
-                current = current.parent;
-            }
-
-            return depth;
-        }
-
     }
 }
 #endif

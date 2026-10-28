@@ -19,35 +19,12 @@ public class InputGlyphEditor : Editor
     private const float EventToolbarHeight = 26f;
     private const float EventActionButtonSize = 20f;
 
-    private static readonly string[] ProfileIdOptions =
-    {
-        UXInput.Watch.InputProfile.KeyboardMouse.ToString(),
-        UXInput.Watch.InputProfile.GenericGamepad.ToString(),
-        UXInput.Watch.InputProfile.GenericJoystick.ToString(),
-        UXInput.Watch.InputProfile.Xbox.ToString(),
-        UXInput.Watch.InputProfile.PlayStation.ToString(),
-        UXInput.Watch.InputProfile.Switch.ToString(),
-        UXInput.Watch.InputProfile.SteamDeck.ToString(),
-        UXInput.Watch.InputProfile.SteamController.ToString(),
-        UXInput.Watch.InputProfile.Touch.ToString(),
-    };
-
-    private static readonly string[] ProfileDisplayOptions =
-    {
-        "Keyboard & Mouse",
-        "Generic Gamepad",
-        "Generic Joystick",
-        "Xbox",
-        "PlayStation",
-        "Switch",
-        "Steam Deck",
-        "Steam Controller",
-        "Touch",
-    };
+    private static readonly string[] ProfileIdOptions = BuildProfileIds();
+    private static readonly string[] ProfileDisplayOptions = BuildProfileDisplayNames();
 
     private readonly List<string> _compositePartBuffer = new List<string>(8);
     private readonly List<string> _compositeOptionBuffer = new List<string>(9);
-    private readonly Dictionary<int, bool> _eventFoldouts = new Dictionary<int, bool>();
+    private readonly List<bool> _eventFoldouts = new List<bool>(8);
     private string[] _compositeOptionArray = Array.Empty<string>();
     private int _selectedEventIndex = -1;
     private SerializedProperty _actionSourceMode;
@@ -196,6 +173,7 @@ public class InputGlyphEditor : Editor
             _selectedEventIndex = count - 1;
         }
 
+        EnsureEventFoldoutCapacity(count);
         DrawProfileEventToolbar(count);
         if (count == 0)
         {
@@ -444,11 +422,12 @@ public class InputGlyphEditor : Editor
         _profileEvents.InsertArrayElementAtIndex(index);
 
         SerializedProperty eventProp = _profileEvents.GetArrayElementAtIndex(index);
-        eventProp.FindPropertyRelative("profileId").stringValue = UXInput.Watch.InputProfile.KeyboardMouse.ToString();
+        eventProp.FindPropertyRelative("profileId").stringValue = InputProfileCatalog.GetId(UXInput.Watch.InputProfile.KeyboardMouse);
         ClearUnityEvent(eventProp.FindPropertyRelative("onMatched"));
         ClearUnityEvent(eventProp.FindPropertyRelative("onNotMatched"));
 
         _selectedEventIndex = index;
+        EnsureEventFoldoutCapacity(_profileEvents.arraySize);
         _eventFoldouts[index] = true;
         serializedObject.ApplyModifiedProperties();
         MarkTargetsDirty();
@@ -463,7 +442,11 @@ public class InputGlyphEditor : Editor
 
         Undo.RecordObjects(targets, "Delete Input Glyph Profile Event");
         _profileEvents.DeleteArrayElementAtIndex(index);
-        CleanupEventFoldouts(index);
+        if (index < _eventFoldouts.Count)
+        {
+            _eventFoldouts.RemoveAt(index);
+        }
+
         _selectedEventIndex = Mathf.Min(index, _profileEvents.arraySize - 1);
         serializedObject.ApplyModifiedProperties();
         MarkTargetsDirty();
@@ -480,22 +463,24 @@ public class InputGlyphEditor : Editor
 
     private bool IsEventExpanded(int index)
     {
-        return _eventFoldouts.TryGetValue(index, out bool expanded) && expanded;
+        return index >= 0 && index < _eventFoldouts.Count && _eventFoldouts[index];
     }
 
     private void SetAllEventFoldouts(bool expanded)
     {
-        _eventFoldouts.Clear();
-        for (int i = 0; i < _profileEvents.arraySize; i++)
+        EnsureEventFoldoutCapacity(_profileEvents.arraySize);
+        for (int i = 0; i < _eventFoldouts.Count; i++)
         {
             _eventFoldouts[i] = expanded;
         }
     }
 
-    private void CleanupEventFoldouts(int removedIndex)
+    private void EnsureEventFoldoutCapacity(int count)
     {
-        _eventFoldouts.Remove(removedIndex);
-        RemapBoolDictionary(_eventFoldouts, removedIndex);
+        while (_eventFoldouts.Count < count)
+        {
+            _eventFoldouts.Add(false);
+        }
     }
 
     private static void ClearUnityEvent(SerializedProperty property)
@@ -520,20 +505,26 @@ public class InputGlyphEditor : Editor
         return calls != null ? calls.arraySize : 0;
     }
 
-    private static void RemapBoolDictionary(Dictionary<int, bool> dictionary, int removedIndex)
+    private static string[] BuildProfileIds()
     {
-        Dictionary<int, bool> remapped = new Dictionary<int, bool>();
-        foreach (KeyValuePair<int, bool> pair in dictionary)
+        string[] ids = new string[InputProfileCatalog.Editable.Count];
+        for (int i = 0; i < ids.Length; i++)
         {
-            int nextIndex = pair.Key > removedIndex ? pair.Key - 1 : pair.Key;
-            remapped[nextIndex] = pair.Value;
+            ids[i] = InputProfileCatalog.Editable[i].Id;
         }
 
-        dictionary.Clear();
-        foreach (KeyValuePair<int, bool> pair in remapped)
+        return ids;
+    }
+
+    private static string[] BuildProfileDisplayNames()
+    {
+        string[] names = new string[InputProfileCatalog.Editable.Count];
+        for (int i = 0; i < names.Length; i++)
         {
-            dictionary[pair.Key] = pair.Value;
+            names[i] = InputProfileCatalog.Editable[i].DisplayName;
         }
+
+        return names;
     }
 
     private InputAction ResolveSelectedAction()

@@ -11,10 +11,14 @@ public sealed class InputGlyphDatabase : ScriptableObject
     [SerializeField] private Sprite placeholderSprite;
     [SerializeField] private Profile[] profiles = Array.Empty<Profile>();
 
+    [NonSerialized] private Dictionary<LookupKey, Entry> _entries;
     [NonSerialized] private Dictionary<string, Profile> _profilesById;
-    [NonSerialized] private string[] _fallbackQueue = Array.Empty<string>();
-    [NonSerialized] private string[] _visitedProfileIds = Array.Empty<string>();
     [NonSerialized] private bool _cacheBuilt;
+
+    /// <summary>
+    /// 图标缺失时使用的占位图。
+    /// </summary>
+    public Sprite Placeholder => placeholderSprite;
 
     private void OnEnable()
     {
@@ -33,32 +37,27 @@ public sealed class InputGlyphDatabase : ScriptableObject
     }
 #endif
 
+    /// <summary>
+    /// 查询指定 Profile 和图标键的明确条目。找不到时返回 false，不回退占位图。
+    /// </summary>
     public bool TryGetGlyph(string profileId, string glyphKey, out Sprite sprite, out string tmpName)
     {
-        EnsureCache();
         sprite = null;
         tmpName = null;
 
-        if (string.IsNullOrWhiteSpace(glyphKey))
+        if (string.IsNullOrWhiteSpace(glyphKey) || !TryGetEntry(profileId, glyphKey, out Entry entry))
         {
-            return TryGetPlaceholder(out sprite, out tmpName);
+            return false;
         }
 
-        if (TryGetEntry(profileId, glyphKey, out Entry entry))
-        {
-            tmpName = ResolveTMPName(entry);
-            if (entry.Sprite == null && string.IsNullOrEmpty(tmpName))
-            {
-                return TryGetPlaceholder(out sprite, out tmpName);
-            }
-
-            sprite = entry.Sprite;
-            return true;
-        }
-
-        return TryGetPlaceholder(out sprite, out tmpName);
+        tmpName = ResolveTMPName(entry);
+        sprite = entry.Sprite;
+        return sprite != null || !string.IsNullOrEmpty(tmpName);
     }
 
+    /// <summary>
+    /// 查询指定 Profile 和图标键的 Sprite。找不到明确条目时返回 false。
+    /// </summary>
     public bool TryGetSprite(string profileId, string glyphKey, out Sprite sprite)
     {
         sprite = null;
@@ -71,6 +70,9 @@ public sealed class InputGlyphDatabase : ScriptableObject
         return sprite != null;
     }
 
+    /// <summary>
+    /// 查询指定 Profile 的绑定分组提示。
+    /// </summary>
     public bool TryGetBindingGroupHints(string profileId, out string[] bindingGroupHints)
     {
         EnsureCache();
@@ -94,87 +96,43 @@ public sealed class InputGlyphDatabase : ScriptableObject
                && profile != null;
     }
 
-    private bool TryGetPlaceholder(out Sprite sprite, out string tmpName)
-    {
-        sprite = placeholderSprite;
-        tmpName = placeholderSprite != null ? placeholderSprite.name : null;
-        return placeholderSprite != null;
-    }
-
     private bool TryGetEntry(string profileId, string glyphKey, out Entry entry)
     {
+        EnsureCache();
         entry = null;
-
         if (string.IsNullOrWhiteSpace(profileId))
         {
             return false;
         }
 
-        int profileCount = profiles != null ? profiles.Length : 0;
-        int queueCount = 0;
-        int visitedCount = 0;
-        EnsureFallbackScratchCapacity(Mathf.Max(InitialProfileCapacity, profileCount + 1));
-        EnqueueProfile(profileId, ref queueCount);
-
-        int readIndex = 0;
-        while (readIndex < queueCount)
-        {
-            string currentProfileId = _fallbackQueue[readIndex];
-            readIndex++;
-
-            if (HasVisited(currentProfileId, visitedCount))
-            {
-                continue;
-            }
-
-            AddVisited(currentProfileId, ref visitedCount);
-
-            if (!TryGetProfile(currentProfileId, out Profile profile))
-            {
-                continue;
-            }
-
-            if (profile.TryGetEntry(glyphKey, out entry))
-            {
-                ClearFallbackScratch(queueCount, visitedCount);
-                return true;
-            }
-
-            string[] fallbackProfileIds = profile.FallbackProfileIds;
-            if (fallbackProfileIds == null)
-            {
-                continue;
-            }
-
-            for (int i = 0; i < fallbackProfileIds.Length; i++)
-            {
-                string fallbackProfileId = fallbackProfileIds[i];
-                if (!string.IsNullOrWhiteSpace(fallbackProfileId) && !HasVisited(fallbackProfileId, visitedCount))
-                {
-                    EnqueueProfile(fallbackProfileId, ref queueCount);
-                }
-            }
-        }
-
-        ClearFallbackScratch(queueCount, visitedCount);
-        return false;
+        return _entries.TryGetValue(new LookupKey(profileId, glyphKey), out entry);
     }
 
+    /// <summary>
+    /// 构建设置时把 Profile 回退链展平为单一查找表，查询只做一次字典命中。
+    /// </summary>
     private void BuildCache()
     {
+        if (_entries == null)
+        {
+            _entries = new Dictionary<LookupKey, Entry>(64);
+        }
+        else
+        {
+            _entries.Clear();
+        }
+
         if (_profilesById == null)
         {
-            _profilesById = new Dictionary<string, Profile>(
-                InitialProfileCapacity,
-                StringComparer.OrdinalIgnoreCase);
+            _profilesById = new Dictionary<string, Profile>(InitialProfileCapacity, StringComparer.OrdinalIgnoreCase);
         }
         else
         {
             _profilesById.Clear();
         }
 
-        int count = profiles != null ? profiles.Length : 0;
-        for (int i = 0; i < count; i++)
+        int profileCount = profiles != null ? profiles.Length : 0;
+        for (int i = 0; i < profileCount; i++)
         {
             Profile profile = profiles[i];
             if (profile == null || string.IsNullOrWhiteSpace(profile.Id))
@@ -186,7 +144,100 @@ public sealed class InputGlyphDatabase : ScriptableObject
             _profilesById[profile.Id] = profile;
         }
 
+        if (profileCount == 0)
+        {
+            _cacheBuilt = true;
+            return;
+        }
+
+        var glyphKeys = new List<string>(64);
+        var seenGlyphKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < profileCount; i++)
+        {
+            Profile profile = profiles[i];
+            if (profile == null)
+            {
+                continue;
+            }
+
+            profile.AppendGlyphKeys(glyphKeys, seenGlyphKeys);
+        }
+
+        var queue = new List<Profile>(InitialProfileCapacity);
+        var visited = new List<string>(InitialProfileCapacity);
+        for (int i = 0; i < profileCount; i++)
+        {
+            Profile owner = profiles[i];
+            if (owner == null || string.IsNullOrWhiteSpace(owner.Id))
+            {
+                continue;
+            }
+
+            for (int keyIndex = 0; keyIndex < glyphKeys.Count; keyIndex++)
+            {
+                string glyphKey = glyphKeys[keyIndex];
+                Entry entry = ResolveEntry(owner, glyphKey, queue, visited);
+                if (entry != null)
+                {
+                    _entries[new LookupKey(owner.Id, glyphKey)] = entry;
+                }
+            }
+        }
+
         _cacheBuilt = true;
+    }
+
+    private Entry ResolveEntry(Profile owner, string glyphKey, List<Profile> queue, List<string> visited)
+    {
+        queue.Clear();
+        visited.Clear();
+        queue.Add(owner);
+        visited.Add(owner.Id);
+
+        for (int index = 0; index < queue.Count; index++)
+        {
+            Profile current = queue[index];
+            if (current.TryGetEntry(glyphKey, out Entry entry))
+            {
+                return entry;
+            }
+
+            string[] fallbackIds = current.FallbackProfileIds;
+            if (fallbackIds == null)
+            {
+                continue;
+            }
+
+            for (int i = 0; i < fallbackIds.Length; i++)
+            {
+                string fallbackId = fallbackIds[i];
+                if (string.IsNullOrWhiteSpace(fallbackId) || ContainsId(visited, fallbackId))
+                {
+                    continue;
+                }
+
+                if (_profilesById.TryGetValue(fallbackId, out Profile fallbackProfile))
+                {
+                    visited.Add(fallbackId);
+                    queue.Add(fallbackProfile);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static bool ContainsId(List<string> ids, string id)
+    {
+        for (int i = 0; i < ids.Count; i++)
+        {
+            if (string.Equals(ids[i], id, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void EnsureCache()
@@ -199,11 +250,6 @@ public sealed class InputGlyphDatabase : ScriptableObject
 
     private static string ResolveTMPName(Entry entry)
     {
-        if (entry == null)
-        {
-            return null;
-        }
-
         if (!string.IsNullOrEmpty(entry.TMPSpriteName))
         {
             return entry.TMPSpriteName;
@@ -211,60 +257,6 @@ public sealed class InputGlyphDatabase : ScriptableObject
 
         Sprite sprite = entry.Sprite;
         return sprite != null ? sprite.name : null;
-    }
-
-    private void EnsureFallbackScratchCapacity(int capacity)
-    {
-        if (_fallbackQueue.Length < capacity)
-        {
-            Array.Resize(ref _fallbackQueue, capacity);
-        }
-
-        if (_visitedProfileIds.Length < capacity)
-        {
-            Array.Resize(ref _visitedProfileIds, capacity);
-        }
-    }
-
-    private void EnqueueProfile(string profileId, ref int queueCount)
-    {
-        if (queueCount == _fallbackQueue.Length)
-        {
-            Array.Resize(ref _fallbackQueue, _fallbackQueue.Length == 0 ? InitialProfileCapacity : _fallbackQueue.Length << 1);
-        }
-
-        _fallbackQueue[queueCount] = profileId;
-        queueCount++;
-    }
-
-    private void AddVisited(string profileId, ref int visitedCount)
-    {
-        if (visitedCount == _visitedProfileIds.Length)
-        {
-            Array.Resize(ref _visitedProfileIds, _visitedProfileIds.Length == 0 ? InitialProfileCapacity : _visitedProfileIds.Length << 1);
-        }
-
-        _visitedProfileIds[visitedCount] = profileId;
-        visitedCount++;
-    }
-
-    private bool HasVisited(string profileId, int visitedCount)
-    {
-        for (int i = 0; i < visitedCount; i++)
-        {
-            if (string.Equals(_visitedProfileIds[i], profileId, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private void ClearFallbackScratch(int queueCount, int visitedCount)
-    {
-        Array.Clear(_fallbackQueue, 0, queueCount);
-        Array.Clear(_visitedProfileIds, 0, visitedCount);
     }
 
     [Serializable]
@@ -277,29 +269,9 @@ public sealed class InputGlyphDatabase : ScriptableObject
 
         [NonSerialized] private Dictionary<string, Entry> _entriesByGlyphKey;
 
-        public string Id
-        {
-            get
-            {
-                return id;
-            }
-        }
-
-        public string[] FallbackProfileIds
-        {
-            get
-            {
-                return fallbackProfileIds;
-            }
-        }
-
-        public string[] BindingGroupHints
-        {
-            get
-            {
-                return bindingGroupHints;
-            }
-        }
+        public string Id => id;
+        public string[] FallbackProfileIds => fallbackProfileIds;
+        public string[] BindingGroupHints => bindingGroupHints;
 
         public void BuildCache()
         {
@@ -336,6 +308,22 @@ public sealed class InputGlyphDatabase : ScriptableObject
                    && entry != null;
         }
 
+        public void AppendGlyphKeys(List<string> glyphKeys, HashSet<string> seenGlyphKeys)
+        {
+            if (_entriesByGlyphKey == null)
+            {
+                return;
+            }
+
+            foreach (KeyValuePair<string, Entry> pair in _entriesByGlyphKey)
+            {
+                if (seenGlyphKeys.Add(pair.Key))
+                {
+                    glyphKeys.Add(pair.Key);
+                }
+            }
+        }
+
         private void RegisterEntry(Entry entry)
         {
             string[] controlPaths = entry.ControlPaths;
@@ -363,28 +351,42 @@ public sealed class InputGlyphDatabase : ScriptableObject
         [SerializeField] private Sprite sprite;
         [SerializeField] private string tmpSpriteName;
 
-        public string[] ControlPaths
+        public string[] ControlPaths => controlPaths;
+        public Sprite Sprite => sprite;
+        public string TMPSpriteName => tmpSpriteName;
+    }
+
+    private readonly struct LookupKey : IEquatable<LookupKey>
+    {
+        private readonly string _profileId;
+        private readonly string _glyphKey;
+        private readonly int _hash;
+
+        internal LookupKey(string profileId, string glyphKey)
         {
-            get
+            _profileId = profileId;
+            _glyphKey = glyphKey;
+            unchecked
             {
-                return controlPaths;
+                _hash = (StringComparer.OrdinalIgnoreCase.GetHashCode(profileId) * 397)
+                        ^ StringComparer.OrdinalIgnoreCase.GetHashCode(glyphKey);
             }
         }
 
-        public Sprite Sprite
+        public bool Equals(LookupKey other)
         {
-            get
-            {
-                return sprite;
-            }
+            return string.Equals(_profileId, other._profileId, StringComparison.OrdinalIgnoreCase)
+                   && string.Equals(_glyphKey, other._glyphKey, StringComparison.OrdinalIgnoreCase);
         }
 
-        public string TMPSpriteName
+        public override bool Equals(object obj)
         {
-            get
-            {
-                return tmpSpriteName;
-            }
+            return obj is LookupKey other && Equals(other);
+        }
+
+        public override int GetHashCode()
+        {
+            return _hash;
         }
     }
 }

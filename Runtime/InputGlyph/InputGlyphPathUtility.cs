@@ -1,8 +1,12 @@
 #if INPUTSYSTEM_SUPPORT
-using Cysharp.Text;
+using System;
 
 internal static class InputGlyphPathUtility
 {
+    /// <summary>
+    /// 把 Input System 控制路径规范化成图标数据库使用的 glyph key。
+    /// 使用两遍扫描 + string.Create，避免 ZString 首次使用时分配线程静态缓冲区。
+    /// </summary>
     internal static string GetGlyphKeyFromControlPath(string controlPath)
     {
         if (string.IsNullOrWhiteSpace(controlPath))
@@ -10,121 +14,106 @@ internal static class InputGlyphPathUtility
             return string.Empty;
         }
 
-        using (Utf16ValueStringBuilder sb = ZString.CreateStringBuilder())
+        int layoutStart = controlPath.IndexOf('<');
+        int layoutEnd = controlPath.IndexOf('>');
+        int pathStart = controlPath.IndexOf('/');
+        if (layoutStart < 0 || layoutEnd <= layoutStart + 1 || pathStart < 0 || pathStart >= controlPath.Length - 1)
         {
-            int layoutStart = controlPath.IndexOf('<');
-            int layoutEnd = controlPath.IndexOf('>');
-            int pathStart = controlPath.IndexOf('/');
-            if (layoutStart < 0 || layoutEnd <= layoutStart || pathStart < 0 || pathStart >= controlPath.Length - 1)
+            return string.Empty;
+        }
+
+        int layoutStartIndex = layoutStart + 1;
+        int layoutLength = layoutEnd - layoutStart - 1;
+        string layoutKey = NormalizeLayout(controlPath, layoutStartIndex, layoutLength);
+        int pathLength = controlPath.Length - pathStart - 1;
+        int totalLength = (layoutKey != null ? layoutKey.Length : layoutLength) + 1 + pathLength;
+
+        var state = new GlyphKeyState(controlPath, layoutKey, layoutStartIndex, layoutLength, pathStart);
+        return string.Create(totalLength, state, static (span, value) =>
+        {
+            int index = 0;
+            if (value.LayoutKey != null)
             {
-                return string.Empty;
+                value.LayoutKey.AsSpan().CopyTo(span);
+                index = value.LayoutKey.Length;
+            }
+            else
+            {
+                for (int i = 0; i < value.LayoutLength; i++)
+                {
+                    span[index++] = InputStringUtility.ToLowerInvariantFast(value.ControlPath[value.LayoutStart + i]);
+                }
             }
 
-            int layoutStartIndex = layoutStart + 1;
-            int layoutLength = layoutEnd - layoutStart - 1;
-            AppendNormalizedLayout(controlPath, layoutStartIndex, layoutLength, sb);
-
-            sb.Append('/');
-            for (int i = pathStart + 1; i < controlPath.Length; i++)
+            span[index++] = '/';
+            for (int i = value.PathStart + 1; i < value.ControlPath.Length; i++)
             {
-                char value = controlPath[i] == '\\' ? '/' : controlPath[i];
-                sb.Append(ToLowerInvariantFast(value));
+                char character = value.ControlPath[i] == '\\' ? '/' : value.ControlPath[i];
+                span[index++] = InputStringUtility.ToLowerInvariantFast(character);
             }
-
-            return sb.ToString();
-        }
+        });
     }
 
-    private static void AppendNormalizedLayout(
-        string source,
-        int startIndex,
-        int length,
-        Utf16ValueStringBuilder builder)
+    private static string NormalizeLayout(string source, int startIndex, int length)
     {
-        if (ContainsIgnoreCase(source, startIndex, length, "keyboard"))
+        ReadOnlySpan<char> layout = source.AsSpan(startIndex, length);
+        if (layout.IndexOf("keyboard".AsSpan(), StringComparison.OrdinalIgnoreCase) >= 0)
         {
-            builder.Append("keyboard");
-            return;
+            return "keyboard";
         }
 
-        if (ContainsIgnoreCase(source, startIndex, length, "mouse"))
+        if (layout.IndexOf("mouse".AsSpan(), StringComparison.OrdinalIgnoreCase) >= 0)
         {
-            builder.Append("mouse");
-            return;
+            return "mouse";
         }
 
-        if (ContainsIgnoreCase(source, startIndex, length, "gamepad")
-            || ContainsIgnoreCase(source, startIndex, length, "controller")
-            || ContainsIgnoreCase(source, startIndex, length, "xinput")
-            || ContainsIgnoreCase(source, startIndex, length, "dualshock")
-            || ContainsIgnoreCase(source, startIndex, length, "dualsense")
-            || ContainsIgnoreCase(source, startIndex, length, "switch")
-            || ContainsIgnoreCase(source, startIndex, length, "nintendo")
-            || ContainsIgnoreCase(source, startIndex, length, "joy-con")
-            || ContainsIgnoreCase(source, startIndex, length, "joycon"))
+        if (layout.IndexOf("gamepad".AsSpan(), StringComparison.OrdinalIgnoreCase) >= 0
+            || layout.IndexOf("controller".AsSpan(), StringComparison.OrdinalIgnoreCase) >= 0
+            || layout.IndexOf("xinput".AsSpan(), StringComparison.OrdinalIgnoreCase) >= 0
+            || layout.IndexOf("dualshock".AsSpan(), StringComparison.OrdinalIgnoreCase) >= 0
+            || layout.IndexOf("dualsense".AsSpan(), StringComparison.OrdinalIgnoreCase) >= 0
+            || layout.IndexOf("switch".AsSpan(), StringComparison.OrdinalIgnoreCase) >= 0
+            || layout.IndexOf("nintendo".AsSpan(), StringComparison.OrdinalIgnoreCase) >= 0
+            || layout.IndexOf("joy-con".AsSpan(), StringComparison.OrdinalIgnoreCase) >= 0
+            || layout.IndexOf("joycon".AsSpan(), StringComparison.OrdinalIgnoreCase) >= 0)
         {
-            builder.Append("gamepad");
-            return;
+            return "gamepad";
         }
 
-        if (ContainsIgnoreCase(source, startIndex, length, "joystick"))
+        if (layout.IndexOf("joystick".AsSpan(), StringComparison.OrdinalIgnoreCase) >= 0)
         {
-            builder.Append("joystick");
-            return;
+            return "joystick";
         }
 
-        if (ContainsIgnoreCase(source, startIndex, length, "touch"))
+        if (layout.IndexOf("touch".AsSpan(), StringComparison.OrdinalIgnoreCase) >= 0)
         {
-            builder.Append("touch");
-            return;
+            return "touch";
         }
 
-        if (ContainsIgnoreCase(source, startIndex, length, "pen"))
+        if (layout.IndexOf("pen".AsSpan(), StringComparison.OrdinalIgnoreCase) >= 0)
         {
-            builder.Append("pen");
-            return;
+            return "pen";
         }
 
-        for (int i = 0; i < length; i++)
-        {
-            builder.Append(ToLowerInvariantFast(source[startIndex + i]));
-        }
+        return null;
     }
 
-    private static bool ContainsIgnoreCase(string source, int startIndex, int length, string value)
+    private readonly struct GlyphKeyState
     {
-        if (string.IsNullOrEmpty(source) || string.IsNullOrEmpty(value) || value.Length > length)
+        internal readonly string ControlPath;
+        internal readonly string LayoutKey;
+        internal readonly int LayoutStart;
+        internal readonly int LayoutLength;
+        internal readonly int PathStart;
+
+        internal GlyphKeyState(string controlPath, string layoutKey, int layoutStart, int layoutLength, int pathStart)
         {
-            return false;
+            ControlPath = controlPath;
+            LayoutKey = layoutKey;
+            LayoutStart = layoutStart;
+            LayoutLength = layoutLength;
+            PathStart = pathStart;
         }
-
-        int end = startIndex + length - value.Length;
-        for (int i = startIndex; i <= end; i++)
-        {
-            int valueIndex = 0;
-            while (valueIndex < value.Length
-                   && ToUpperInvariantFast(source[i + valueIndex]) == ToUpperInvariantFast(value[valueIndex]))
-            {
-                valueIndex++;
-            }
-
-            if (valueIndex == value.Length)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static char ToLowerInvariantFast(char value)
-    {
-        return value >= 'A' && value <= 'Z' ? (char)(value + 32) : char.ToLowerInvariant(value);
-    }
-
-    private static char ToUpperInvariantFast(char value)
-    {
-        return value >= 'a' && value <= 'z' ? (char)(value - 32) : char.ToUpperInvariant(value);
     }
 }
 #endif

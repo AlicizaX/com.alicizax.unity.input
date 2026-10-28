@@ -18,6 +18,7 @@ public static partial class UXInput
         private static HapticPattern _currentPattern;
         private static float _patternStartTime;
         private static bool _isUpdateRegistered;
+        private static readonly System.Action UpdateHandler = UpdateHaptics;
 
         /// <summary>
         /// 获取或设置全局震动强度，取值范围为 0 到 1。
@@ -128,15 +129,6 @@ public static partial class UXInput
         }
 
         /// <summary>
-        /// 设置全局震动强度。
-        /// </summary>
-        /// <param name="intensity">震动强度，取值范围为 0 到 1。</param>
-        public static void SetIntensity(float intensity)
-        {
-            Intensity = intensity;
-        }
-
-        /// <summary>
         /// 更新当前震动状态。通常由输入系统更新回调自动调用。
         /// </summary>
         public static void UpdateHaptics()
@@ -195,7 +187,7 @@ public static partial class UXInput
                 return;
             }
 
-            InputSystem.onAfterUpdate += UpdateHaptics;
+            InputSystem.onAfterUpdate += UpdateHandler;
             _isUpdateRegistered = true;
         }
 
@@ -206,7 +198,7 @@ public static partial class UXInput
                 return;
             }
 
-            InputSystem.onAfterUpdate -= UpdateHaptics;
+            InputSystem.onAfterUpdate -= UpdateHandler;
             _isUpdateRegistered = false;
         }
 

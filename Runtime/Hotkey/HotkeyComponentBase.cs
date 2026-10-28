@@ -47,12 +47,12 @@ namespace UnityEngine.UI
 
         protected virtual void Reset()
         {
-            AutoAssignHolder();
+            AutoAssignHolder(true);
         }
 
         protected virtual void OnEnable()
         {
-            AutoAssignHolder();
+            AutoAssignHolder(false);
             this.BindHotKey();
         }
 
@@ -64,14 +64,22 @@ namespace UnityEngine.UI
 #if UNITY_EDITOR
         protected virtual void OnValidate()
         {
-            AutoAssignHolder();
+            AutoAssignHolder(true);
         }
 #endif
 
         public abstract void HotkeyActionTrigger();
 
-        protected void AutoAssignHolder()
+        /// <summary>
+        /// 解析所属 Holder。运行时只在字段为空时解析一次，避免每次启用覆盖序列化结果。
+        /// </summary>
+        protected void AutoAssignHolder(bool force)
         {
+            if (!force && _holder != null)
+            {
+                return;
+            }
+
             _holder = GetComponentInParent<UIHolderObjectBase>(true);
         }
     }

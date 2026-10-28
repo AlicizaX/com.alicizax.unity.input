@@ -45,9 +45,14 @@ namespace UnityEditor.UI
             if (hotkeyComponent is HotkeyComponent && _component.objectReferenceValue == null)
             {
                 EditorGUILayout.HelpBox("No submit target was found on this object.", MessageType.Error);
-                if (hotkeyComponent.TryGetComponent(typeof(ISubmitHandler), out Component submitHandler))
+                Component[] components = hotkeyComponent.GetComponents<Component>();
+                for (int i = 0; i < components.Length; i++)
                 {
-                    _component.objectReferenceValue = submitHandler;
+                    if (components[i] is ISubmitHandler)
+                    {
+                        _component.objectReferenceValue = components[i];
+                        break;
+                    }
                 }
             }
             else if (_component != null && _component.objectReferenceValue != null && _component.objectReferenceValue is not ISubmitHandler)

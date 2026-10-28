@@ -1,72 +1,68 @@
 #if INPUTSYSTEM_SUPPORT
 using System;
 using System.Collections.Generic;
-using Cysharp.Text;
+using System.Runtime.CompilerServices;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
 public static partial class UXInput
 {
     /// <summary>
-    /// 输入图标查询工具，负责根据当前输入设备 Profile、动作绑定或控制路径解析 UI 图标、TMP Sprite 标签和显示文本。
+    /// 输入图标查询工具，负责根据当前输入 Profile、动作绑定或控制路径解析 UI 图标、TMP Sprite 标签和显示文本。
+    /// 所有查询结果都按 Profile/绑定版本缓存，稳定运行时不再分配。
     /// </summary>
     public static class Glyph
     {
-        private const int InitialCacheCapacity = 64;
-
         private static readonly Dictionary<string, string> DisplayNameCache =
-            new Dictionary<string, string>(InitialCacheCapacity, StringComparer.Ordinal);
+            new Dictionary<string, string>(64, StringComparer.Ordinal);
 
         private static readonly Dictionary<string, string> GlyphKeyCache =
-            new Dictionary<string, string>(InitialCacheCapacity, StringComparer.Ordinal);
+            new Dictionary<string, string>(64, StringComparer.Ordinal);
 
         private static readonly Dictionary<string, string> SpriteTagCache =
-            new Dictionary<string, string>(InitialCacheCapacity, StringComparer.Ordinal);
+            new Dictionary<string, string>(64, StringComparer.Ordinal);
+
+        private static readonly Dictionary<BindingKey, int> BindingIndexCache = new Dictionary<BindingKey, int>(32);
 
         private static InputGlyphDatabase _database;
+        private static int _cacheVersion = -1;
 
         /// <summary>
         /// 获取当前输入设备对应的图标 Profile ID。
         /// </summary>
-        public static string CurrentProfileId
-        {
-            get
-            {
-                return Watch.CurrentInputProfile.ToString();
-            }
-        }
+        public static string CurrentProfileId => Watch.CurrentProfileId;
 
         /// <summary>
         /// 设置当前全局使用的输入图标数据库，并清空图标查询缓存。
         /// </summary>
-        /// <param name="database">要设置为当前全局数据源的输入图标数据库；传入 null 时清空当前数据源。</param>
         public static void SetDatabase(InputGlyphDatabase database)
         {
             _database = database;
-            DisplayNameCache.Clear();
-            GlyphKeyCache.Clear();
-            SpriteTagCache.Clear();
+            ClearCaches();
+        }
+
+        internal static void ResetForPlayMode()
+        {
+            _database = null;
+            ClearCaches();
         }
 
         /// <summary>
         /// 获取指定输入动作在当前输入 Profile 下最匹配绑定的有效控制路径。
         /// </summary>
-        /// <param name="action">要查询绑定路径的输入动作。</param>
-        /// <param name="compositePartName">可选的组合绑定部分名称；为空时查询普通绑定。</param>
-        /// <returns>匹配绑定的有效控制路径；未找到匹配绑定时返回空字符串。</returns>
         public static string GetBindingControlPath(InputAction action, string compositePartName = null)
         {
-            return TryGetBindingControl(action, compositePartName, out InputBinding binding)
-                ? GetEffectivePath(binding)
-                : string.Empty;
+            if (!TryGetBinding(action, compositePartName, out _, out InputBinding binding))
+            {
+                return string.Empty;
+            }
+
+            return InputStringUtility.GetEffectivePath(in binding);
         }
 
         /// <summary>
         /// 获取指定输入动作引用在当前输入 Profile 下最匹配绑定的有效控制路径。
         /// </summary>
-        /// <param name="actionReference">要查询绑定路径的输入动作引用。</param>
-        /// <param name="compositePartName">可选的组合绑定部分名称；为空时查询普通绑定。</param>
-        /// <returns>匹配绑定的有效控制路径；引用为空或未找到匹配绑定时返回空字符串。</returns>
         public static string GetBindingControlPath(InputActionReference actionReference, string compositePartName = null)
         {
             return GetBindingControlPath(actionReference != null ? actionReference.action : null, compositePartName);
@@ -75,29 +71,18 @@ public static partial class UXInput
         /// <summary>
         /// 根据输入动作在当前输入 Profile 下的匹配绑定，尝试获取 TMP Sprite 标签。
         /// </summary>
-        /// <param name="action">要查询图标的输入动作。</param>
-        /// <param name="compositePartName">可选的组合绑定部分名称；为空时查询普通绑定。</param>
-        /// <param name="tag">输出 TMP Sprite 标签，例如 &lt;sprite name="A"&gt;；查询失败时为 null。</param>
-        /// <param name="displayFallback">输出绑定的文本显示名，用于图标缺失时回退显示。</param>
-        /// <returns>成功解析 TMP Sprite 标签时返回 true，否则返回 false。</returns>
         public static bool TryGetTMPTagForActionPath(
             InputAction action,
             string compositePartName,
             out string tag,
             out string displayFallback)
         {
-            string controlPath = GetBindingControlPath(action, compositePartName);
-            return TryGetTMPTagForControlPath(controlPath, out tag, out displayFallback);
+            return TryGetTMPTagForControlPath(GetBindingControlPath(action, compositePartName), out tag, out displayFallback);
         }
 
         /// <summary>
         /// 根据输入动作引用在当前输入 Profile 下的匹配绑定，尝试获取 TMP Sprite 标签。
         /// </summary>
-        /// <param name="actionReference">要查询图标的输入动作引用。</param>
-        /// <param name="compositePartName">可选的组合绑定部分名称；为空时查询普通绑定。</param>
-        /// <param name="tag">输出 TMP Sprite 标签，例如 &lt;sprite name="A"&gt;；查询失败时为 null。</param>
-        /// <param name="displayFallback">输出绑定的文本显示名，用于图标缺失时回退显示。</param>
-        /// <returns>成功解析 TMP Sprite 标签时返回 true，否则返回 false。</returns>
         public static bool TryGetTMPTagForActionPath(
             InputActionReference actionReference,
             string compositePartName,
@@ -114,26 +99,17 @@ public static partial class UXInput
         /// <summary>
         /// 根据输入动作在当前输入 Profile 下的匹配绑定，尝试获取 UI Sprite 图标。
         /// </summary>
-        /// <param name="action">要查询图标的输入动作。</param>
-        /// <param name="compositePartName">可选的组合绑定部分名称；为空时查询普通绑定。</param>
-        /// <param name="sprite">输出匹配的 UI Sprite 图标；查询失败时为 null。</param>
-        /// <returns>成功解析 UI Sprite 图标时返回 true，否则返回 false。</returns>
         public static bool TryGetUISpriteForActionPath(
             InputAction action,
             string compositePartName,
             out Sprite sprite)
         {
-            string controlPath = GetBindingControlPath(action, compositePartName);
-            return TryGetUISpriteForControlPath(controlPath, out sprite);
+            return TryGetUISpriteForControlPath(GetBindingControlPath(action, compositePartName), out sprite);
         }
 
         /// <summary>
         /// 根据输入动作引用在当前输入 Profile 下的匹配绑定，尝试获取 UI Sprite 图标。
         /// </summary>
-        /// <param name="actionReference">要查询图标的输入动作引用。</param>
-        /// <param name="compositePartName">可选的组合绑定部分名称；为空时查询普通绑定。</param>
-        /// <param name="sprite">输出匹配的 UI Sprite 图标；查询失败时为 null。</param>
-        /// <returns>成功解析 UI Sprite 图标时返回 true，否则返回 false。</returns>
         public static bool TryGetUISpriteForActionPath(
             InputActionReference actionReference,
             string compositePartName,
@@ -147,11 +123,8 @@ public static partial class UXInput
 
         /// <summary>
         /// 根据控制路径和当前输入 Profile，尝试获取 TMP Sprite 标签。
+        /// 找不到明确图标时返回 false 并给出可回退显示的文本；不会用占位图冒充实测命中。
         /// </summary>
-        /// <param name="controlPath">Unity Input System 控制路径，例如 &lt;Gamepad&gt;/buttonSouth。</param>
-        /// <param name="tag">输出 TMP Sprite 标签，例如 &lt;sprite name="A"&gt;；查询失败时为 null。</param>
-        /// <param name="displayFallback">输出控制路径的人类可读显示名，用于图标缺失时回退显示。</param>
-        /// <returns>成功解析 TMP Sprite 标签时返回 true，否则返回 false。</returns>
         public static bool TryGetTMPTagForControlPath(
             string controlPath,
             out string tag,
@@ -160,13 +133,13 @@ public static partial class UXInput
             displayFallback = GetDisplayNameFromControlPath(controlPath);
             tag = null;
 
-            string glyphKey = GetGlyphKeyFromControlPath(controlPath);
-            if (string.IsNullOrEmpty(glyphKey))
+            if (_database == null)
             {
                 return false;
             }
 
-            if (_database == null)
+            string glyphKey = GetGlyphKeyFromControlPath(controlPath);
+            if (string.IsNullOrEmpty(glyphKey))
             {
                 return false;
             }
@@ -182,15 +155,16 @@ public static partial class UXInput
 
         /// <summary>
         /// 根据控制路径和当前输入 Profile，尝试获取 UI Sprite 图标。
+        /// 找不到明确图标时回退到数据库占位图。
         /// </summary>
-        /// <param name="controlPath">Unity Input System 控制路径，例如 &lt;Gamepad&gt;/buttonSouth。</param>
-        /// <param name="sprite">输出匹配的 UI Sprite 图标；查询失败时为 null。</param>
-        /// <returns>成功解析 UI Sprite 图标时返回 true，否则返回 false。</returns>
-        public static bool TryGetUISpriteForControlPath(
-            string controlPath,
-            out Sprite sprite)
+        public static bool TryGetUISpriteForControlPath(string controlPath, out Sprite sprite)
         {
             sprite = null;
+
+            if (_database == null)
+            {
+                return false;
+            }
 
             string glyphKey = GetGlyphKeyFromControlPath(controlPath);
             if (string.IsNullOrEmpty(glyphKey))
@@ -198,31 +172,37 @@ public static partial class UXInput
                 return false;
             }
 
-            return _database != null && _database.TryGetSprite(CurrentProfileId, glyphKey, out sprite);
+            if (_database.TryGetSprite(CurrentProfileId, glyphKey, out sprite))
+            {
+                return true;
+            }
+
+            sprite = _database.Placeholder;
+            return sprite != null;
         }
 
         /// <summary>
         /// 获取输入动作在当前输入 Profile 下最匹配绑定的显示文本。
         /// </summary>
-        /// <param name="action">要查询显示文本的输入动作。</param>
-        /// <param name="compositePartName">可选的组合绑定部分名称；为空时查询普通绑定。</param>
-        /// <returns>匹配绑定的人类可读显示文本；未找到匹配绑定时返回空字符串。</returns>
         public static string GetDisplayNameFromInputAction(InputAction action, string compositePartName = null)
         {
-            if (!TryGetBindingControl(action, compositePartName, out InputBinding binding))
+            if (!TryGetBinding(action, compositePartName, out int bindingIndex, out InputBinding binding))
             {
                 return string.Empty;
             }
 
-            string display = binding.ToDisplayString();
-            return string.IsNullOrEmpty(display) ? GetDisplayNameFromControlPath(GetEffectivePath(binding)) : display;
+            string display = Rebind.GetBindingDisplayString(action, bindingIndex);
+            if (!string.IsNullOrEmpty(display))
+            {
+                return display;
+            }
+
+            return GetDisplayNameFromControlPath(InputStringUtility.GetEffectivePath(in binding));
         }
 
         /// <summary>
         /// 将 Unity Input System 控制路径转换为人类可读的显示文本。
         /// </summary>
-        /// <param name="controlPath">Unity Input System 控制路径，例如 &lt;Keyboard&gt;/space。</param>
-        /// <returns>控制路径的人类可读显示文本；控制路径为空时返回空字符串。</returns>
         public static string GetDisplayNameFromControlPath(string controlPath)
         {
             if (string.IsNullOrWhiteSpace(controlPath))
@@ -252,43 +232,17 @@ public static partial class UXInput
         /// <summary>
         /// 在输入动作上查找当前输入 Profile 下最匹配的绑定。
         /// </summary>
-        /// <param name="action">要查询绑定的输入动作。</param>
-        /// <param name="compositePartName">可选的组合绑定部分名称；为空时查询普通绑定。</param>
-        /// <param name="binding">输出匹配到的输入绑定；未找到时为默认值。</param>
-        /// <returns>找到匹配绑定时返回 true，否则返回 false。</returns>
         public static bool TryGetBindingControl(
             InputAction action,
             string compositePartName,
             out InputBinding binding)
         {
-            binding = default;
-            if (action == null)
-            {
-                return false;
-            }
-
-            string profileId = CurrentProfileId;
-            string[] bindingGroupHints = null;
-            if (_database != null && _database.TryGetBindingGroupHints(profileId, out string[] hints))
-            {
-                bindingGroupHints = hints;
-            }
-
-            int bindingIndex = FindBestBindingIndex(action, compositePartName, profileId, bindingGroupHints);
-            if (bindingIndex < 0)
-            {
-                return false;
-            }
-
-            binding = action.bindings[bindingIndex];
-            return true;
+            return TryGetBinding(action, compositePartName, out _, out binding);
         }
 
         /// <summary>
         /// 将 Unity Input System 控制路径转换为图标数据库使用的图标键。
         /// </summary>
-        /// <param name="controlPath">Unity Input System 控制路径，例如 &lt;Gamepad&gt;/buttonSouth。</param>
-        /// <returns>图标数据库使用的规范化图标键；控制路径为空或格式无效时返回空字符串。</returns>
         public static string GetGlyphKeyFromControlPath(string controlPath)
         {
             if (string.IsNullOrWhiteSpace(controlPath))
@@ -306,196 +260,71 @@ public static partial class UXInput
             return glyphKey;
         }
 
-        private static int FindBestBindingIndex(
+        private static bool TryGetBinding(
             InputAction action,
             string compositePartName,
-            string profileId,
-            string[] bindingGroupHints)
+            out int bindingIndex,
+            out InputBinding binding)
         {
-            int bestScore = int.MinValue;
-            int bestBindingIndex = -1;
-            bool requireCompositePart = !string.IsNullOrEmpty(compositePartName);
-
-            for (int i = 0; i < action.bindings.Count; i++)
-            {
-                InputBinding candidate = action.bindings[i];
-                if (candidate.isComposite)
-                {
-                    continue;
-                }
-
-                if (requireCompositePart)
-                {
-                    if (!candidate.isPartOfComposite ||
-                        !string.Equals(candidate.name, compositePartName, StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-                }
-                else if (candidate.isPartOfComposite)
-                {
-                    continue;
-                }
-
-                string path = GetEffectivePath(candidate);
-                if (string.IsNullOrWhiteSpace(path))
-                {
-                    continue;
-                }
-
-                int score = ScoreBinding(candidate, path, profileId, bindingGroupHints);
-                if (score > bestScore)
-                {
-                    bestScore = score;
-                    bestBindingIndex = i;
-                }
-            }
-
-            return bestScore > int.MinValue ? bestBindingIndex : -1;
-        }
-
-        private static int ScoreBinding(
-            InputBinding binding,
-            string path,
-            string profileId,
-            string[] bindingGroupHints)
-        {
-            int score = 0;
-            if (MatchesBindingGroups(binding.groups, bindingGroupHints))
-            {
-                score += 100;
-            }
-            else if (!string.IsNullOrWhiteSpace(binding.groups))
-            {
-                score -= 20;
-            }
-
-            if (MatchesControlPath(path, profileId))
-            {
-                score += 60;
-            }
-
-            if (!binding.isPartOfComposite)
-            {
-                score += 5;
-            }
-
-            return score;
-        }
-
-        private static bool MatchesBindingGroups(string groups, string[] hints)
-        {
-            if (string.IsNullOrWhiteSpace(groups) || hints == null)
+            bindingIndex = -1;
+            binding = default;
+            if (action == null)
             {
                 return false;
             }
 
-            int tokenStart = 0;
-            for (int i = 0; i <= groups.Length; i++)
-            {
-                if (i < groups.Length && groups[i] != InputBinding.Separator)
-                {
-                    continue;
-                }
-
-                int tokenLength = i - tokenStart;
-                while (tokenLength > 0 && char.IsWhiteSpace(groups[tokenStart]))
-                {
-                    tokenStart++;
-                    tokenLength--;
-                }
-
-                while (tokenLength > 0 && char.IsWhiteSpace(groups[tokenStart + tokenLength - 1]))
-                {
-                    tokenLength--;
-                }
-
-                if (tokenLength > 0 && ContainsAny(groups, tokenStart, tokenLength, hints))
-                {
-                    return true;
-                }
-
-                tokenStart = i + 1;
-            }
-
-            return false;
-        }
-
-        private static bool MatchesControlPath(string path, string profileId)
-        {
-            if (string.IsNullOrWhiteSpace(path))
+            bindingIndex = FindBindingIndex(action, compositePartName);
+            if (bindingIndex < 0)
             {
                 return false;
             }
 
-            if (string.Equals(profileId, Watch.InputProfile.KeyboardMouse.ToString(), StringComparison.OrdinalIgnoreCase))
-            {
-                return path.StartsWith("<Keyboard>", StringComparison.OrdinalIgnoreCase)
-                       || path.StartsWith("<Mouse>", StringComparison.OrdinalIgnoreCase);
-            }
-
-            return path.StartsWith("<Gamepad>", StringComparison.OrdinalIgnoreCase)
-                   || path.StartsWith("<Joystick>", StringComparison.OrdinalIgnoreCase)
-                   || ContainsIgnoreCase(path, profileId);
+            binding = action.bindings[bindingIndex];
+            return true;
         }
 
-        private static bool ContainsAny(string source, int startIndex, int length, string[] hints)
+        private static int FindBindingIndex(InputAction action, string compositePartName)
         {
-            if (string.IsNullOrEmpty(source) || hints == null || length <= 0)
+            int version = Rebind.BindingVersion;
+            if (_cacheVersion != version)
             {
-                return false;
+                BindingIndexCache.Clear();
+                _cacheVersion = version;
             }
 
-            for (int i = 0; i < hints.Length; i++)
+            var key = new BindingKey(action, compositePartName, Watch.CurrentInputProfile);
+            if (BindingIndexCache.TryGetValue(key, out int cachedIndex))
             {
-                if (ContainsIgnoreCase(source, startIndex, length, hints[i]))
-                {
-                    return true;
-                }
+                return cachedIndex;
             }
 
-            return false;
+            int index = InputBindingResolver.SelectForDisplay(
+                action,
+                compositePartName,
+                Watch.CurrentInputProfile,
+                GetBindingGroupHints(Watch.CurrentInputProfile));
+            BindingIndexCache[key] = index;
+            return index;
         }
 
-        private static bool ContainsIgnoreCase(string source, int startIndex, int length, string value)
+        private static string[] GetBindingGroupHints(Watch.InputProfile profile)
         {
-            if (string.IsNullOrEmpty(source) || string.IsNullOrEmpty(value) || value.Length > length)
+            if (_database != null
+                && _database.TryGetBindingGroupHints(Watch.CurrentProfileId, out string[] databaseHints))
             {
-                return false;
+                return databaseHints;
             }
 
-            int end = startIndex + length - value.Length;
-            for (int i = startIndex; i <= end; i++)
-            {
-                int valueIndex = 0;
-                while (valueIndex < value.Length
-                       && ToUpperInvariantFast(source[i + valueIndex]) == ToUpperInvariantFast(value[valueIndex]))
-                {
-                    valueIndex++;
-                }
-
-                if (valueIndex == value.Length)
-                {
-                    return true;
-                }
-            }
-
-            return false;
+            return InputProfileCatalog.TryGet(profile, out InputProfileInfo info) ? info.BindingGroupHints : null;
         }
 
-        private static bool ContainsIgnoreCase(string source, string value)
+        private static void ClearCaches()
         {
-            if (string.IsNullOrEmpty(source) || string.IsNullOrEmpty(value) || value.Length > source.Length)
-            {
-                return false;
-            }
-
-            return source.IndexOf(value, StringComparison.OrdinalIgnoreCase) >= 0;
-        }
-
-        private static char ToUpperInvariantFast(char value)
-        {
-            return value >= 'a' && value <= 'z' ? (char)(value - 32) : char.ToUpperInvariant(value);
+            DisplayNameCache.Clear();
+            GlyphKeyCache.Clear();
+            SpriteTagCache.Clear();
+            BindingIndexCache.Clear();
+            _cacheVersion = -1;
         }
 
         private static string BuildDisplayFallback(string controlPath)
@@ -517,15 +346,7 @@ public static partial class UXInput
                 return string.Empty;
             }
 
-            using (Utf16ValueStringBuilder sb = ZString.CreateStringBuilder())
-            {
-                for (int i = start; i <= end; i++)
-                {
-                    sb.Append(controlPath[i]);
-                }
-
-                return sb.ToString();
-            }
+            return controlPath.Substring(start, end - start + 1);
         }
 
         private static int FindLastControlPathSegmentStart(string controlPath)
@@ -553,7 +374,9 @@ public static partial class UXInput
 
         private static string GetSpriteTag(Sprite sprite, string spriteName)
         {
-            string resolvedSpriteName = !string.IsNullOrEmpty(spriteName) ? spriteName : (sprite != null ? sprite.name : null);
+            string resolvedSpriteName = !string.IsNullOrEmpty(spriteName)
+                ? spriteName
+                : (sprite != null ? sprite.name : null);
             if (string.IsNullOrEmpty(resolvedSpriteName))
             {
                 return null;
@@ -564,16 +387,49 @@ public static partial class UXInput
                 return cachedSpriteTag;
             }
 
-            string cachedTag = ZString.Concat("<sprite name=\"", resolvedSpriteName, "\">");
+            string cachedTag = string.Concat("<sprite name=\"", resolvedSpriteName, "\">");
             SpriteTagCache[resolvedSpriteName] = cachedTag;
             return cachedTag;
         }
 
-        private static string GetEffectivePath(InputBinding binding)
+        private readonly struct BindingKey : IEquatable<BindingKey>
         {
-            return string.IsNullOrWhiteSpace(binding.effectivePath) ? binding.path : binding.effectivePath;
-        }
+            private readonly InputAction _action;
+            private readonly string _compositePartName;
+            private readonly Watch.InputProfile _profile;
+            private readonly int _hash;
 
+            internal BindingKey(InputAction action, string compositePartName, Watch.InputProfile profile)
+            {
+                _action = action;
+                _compositePartName = compositePartName ?? string.Empty;
+                _profile = profile;
+                unchecked
+                {
+                    int partHash = _compositePartName.Length == 0
+                        ? 0
+                        : StringComparer.OrdinalIgnoreCase.GetHashCode(_compositePartName);
+                    _hash = (RuntimeHelpers.GetHashCode(action) * 397) ^ partHash ^ ((int)profile << 16);
+                }
+            }
+
+            public bool Equals(BindingKey other)
+            {
+                return ReferenceEquals(_action, other._action)
+                       && _profile == other._profile
+                       && string.Equals(_compositePartName, other._compositePartName, StringComparison.OrdinalIgnoreCase);
+            }
+
+            public override bool Equals(object obj)
+            {
+                return obj is BindingKey other && Equals(other);
+            }
+
+            public override int GetHashCode()
+            {
+                return _hash;
+            }
+        }
     }
 }
 #endif

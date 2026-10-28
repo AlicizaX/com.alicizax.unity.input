@@ -3,7 +3,6 @@ using System;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.Controls;
-using UnityEngine.InputSystem.Layouts;
 
 public static partial class UXInput
 {
@@ -11,7 +10,6 @@ public static partial class UXInput
     {
         private const float AxisActivationThreshold = 0.5f;
         private const float StickActivationThreshold = 0.25f;
-        private const int InitialDeviceProbeFrames = 30;
         private const string KeyboardMouseScheme = "KeyboardMouse";
         private const string TouchScheme = "Touch";
         private const string GamepadScheme = "Gamepad";
@@ -19,18 +17,23 @@ public static partial class UXInput
         private const string UnknownScheme = "Unknown";
         private const string DefaultKeyboardMouseName = "Keyboard&Mouse";
         private const string DefaultTouchName = "Touchscreen";
-        private const string VendorIdField = "vendorId";
-        private const string ProductIdField = "productId";
 
         private static InputAction _anyInputAction;
         private static bool _initialized;
-        private static int _initialDeviceProbeFramesRemaining;
+
+        // 设备描述在连接期间是稳定不变量：按设备缓存上下文，输入事件只做引用比较。
+        private static InputDevice _cachedDevice;
+        private static int _cachedDeviceId = -1;
+        private static InputContext _cachedContext;
 
         public static InputContext Current { get; private set; } = InputContext.KeyboardMouse(ResolveDeviceType());
+        private static string _currentProfileId = InputProfileCatalog.GetId(Current.InputProfile);
+
         public static InputDeviceType CurrentDeviceType => Current.DeviceType;
         public static InputType CurrentInputType => Current.InputType;
         public static InputProfile CurrentInputProfile => Current.InputProfile;
         public static string CurrentControlScheme => Current.ControlScheme;
+        public static string CurrentProfileId => _currentProfileId;
         public static bool IsNavigationInput => Current.InputType == InputType.Gamepad || Current.InputType == InputType.Joystick;
         public static bool IsTouchInput => Current.InputType == InputType.Touch;
         public static bool IsKeyboardMouseInput => Current.InputType == InputType.KeyboardMouse;
@@ -55,21 +58,11 @@ public static partial class UXInput
 
             InputSystem.onDeviceChange -= OnDeviceChange;
             InputSystem.onDeviceChange += OnDeviceChange;
-
-            _initialDeviceProbeFramesRemaining = InitialDeviceProbeFrames;
-            InputSystem.onAfterUpdate -= OnAfterInputUpdate;
-            InputSystem.onAfterUpdate += OnAfterInputUpdate;
         }
 
         internal static void Shutdown(bool clearEventListeners = false)
         {
-            if (!_initialized)
-            {
-                return;
-            }
-
             InputSystem.onDeviceChange -= OnDeviceChange;
-            InputSystem.onAfterUpdate -= OnAfterInputUpdate;
 
             if (_anyInputAction != null)
             {
@@ -82,6 +75,15 @@ public static partial class UXInput
             ResetStaticState(clearEventListeners);
         }
 
+        internal static void ResetForPlayMode()
+        {
+            Shutdown(true);
+        }
+
+        /// <summary>
+        /// 构建指定设备的输入上下文。只组装现有字符串与值类型，不产生托管分配；
+        /// 高频路径仍应使用内部的 <see cref="ResolveContext"/>，它按设备缓存结果。
+        /// </summary>
         public static InputContext BuildContext(InputDevice device)
         {
             if (device == null)
@@ -89,37 +91,46 @@ public static partial class UXInput
                 return ResolvePlatformDefaultContext();
             }
 
-            if (IsKeyboardMouseDevice(device))
+            InputType inputType = ResolveInputType(device);
+            if (inputType == InputType.KeyboardMouse)
             {
                 return InputContext.KeyboardMouse(ResolveDeviceType(), device);
             }
 
-            if (device is Touchscreen)
+            if (inputType == InputType.Touch)
             {
                 return InputContext.Touch(ResolveDeviceType(), device);
             }
 
-            TryParseVendorProductIds(device.description.capabilities, out int vendorId, out int productId);
-            InputDeviceType deviceType = ResolveDeviceType();
-            InputType inputType = ResolveInputType(device);
-            InputProfile inputProfile = ResolveInputProfile(device, vendorId, productId);
-            string controlScheme = ResolveControlScheme(inputType);
-            string deviceName = string.IsNullOrWhiteSpace(device.displayName) ? device.name : device.displayName;
-            InputDeviceDescription description = device.description;
-
             return new InputContext(
-                deviceType,
+                ResolveDeviceType(),
                 inputType,
-                inputProfile,
-                controlScheme,
+                ResolveInputProfile(device, inputType),
+                ResolveControlScheme(inputType),
                 device.deviceId,
-                vendorId,
-                productId,
-                deviceName,
-                device.layout,
-                description.interfaceName,
-                description.manufacturer,
-                description.product);
+                GetDeviceName(device));
+        }
+
+        /// <summary>
+        /// 获取设备上下文，首次访问后按设备缓存。设备增删/重连时缓存失效。
+        /// </summary>
+        internal static InputContext ResolveContext(InputDevice device)
+        {
+            if (device == null)
+            {
+                return ResolvePlatformDefaultContext();
+            }
+
+            if (ReferenceEquals(device, _cachedDevice) && device.deviceId == _cachedDeviceId)
+            {
+                return _cachedContext;
+            }
+
+            InputContext context = BuildContext(device);
+            _cachedDevice = device;
+            _cachedDeviceId = device.deviceId;
+            _cachedContext = context;
+            return context;
         }
 
         private static void CreateAnyInputAction()
@@ -171,12 +182,7 @@ public static partial class UXInput
                 return;
             }
 
-            if (IsInitialProbeActive() && !IsGamepadLike(device) && !(device is Joystick))
-            {
-                return;
-            }
-
-            SetCurrentContext(BuildContext(device));
+            SetCurrentContext(ResolveContext(device));
             OnInputActivity?.Invoke(Current);
         }
 
@@ -187,13 +193,15 @@ public static partial class UXInput
                 return;
             }
 
+            InvalidateContextCache();
+
             switch (change)
             {
                 case InputDeviceChange.Added:
                 case InputDeviceChange.Reconnected:
                     if (ShouldPromoteAddedDevice(device))
                     {
-                        SetCurrentContext(BuildContext(device));
+                        SetCurrentContext(ResolveContext(device));
                     }
 
                     break;
@@ -201,34 +209,10 @@ public static partial class UXInput
                 case InputDeviceChange.Disconnected:
                     if (device.deviceId == Current.DeviceId)
                     {
-                        SetCurrentContext(ResolveFallbackContext(device.deviceId));
+                        SetCurrentContext(ResolveInitialContext());
                     }
 
                     break;
-            }
-        }
-
-        private static void OnAfterInputUpdate()
-        {
-            if (_initialDeviceProbeFramesRemaining <= 0)
-            {
-                InputSystem.onAfterUpdate -= OnAfterInputUpdate;
-                return;
-            }
-
-            _initialDeviceProbeFramesRemaining--;
-            InputContext initialContext = ResolveInitialContext();
-            if (ShouldPromoteInitialContext(initialContext))
-            {
-                SetCurrentContext(initialContext);
-            }
-
-            if (Current.InputType == InputType.Gamepad ||
-                Current.InputType == InputType.Joystick ||
-                _initialDeviceProbeFramesRemaining <= 0)
-            {
-                _initialDeviceProbeFramesRemaining = 0;
-                InputSystem.onAfterUpdate -= OnAfterInputUpdate;
             }
         }
 
@@ -242,6 +226,7 @@ public static partial class UXInput
             }
 
             Current = resolvedContext;
+            _currentProfileId = InputProfileCatalog.GetId(resolvedContext.InputProfile);
             OnContextChanged?.Invoke(resolvedContext);
 
             if (forceEmit || previousContext.DeviceType != resolvedContext.DeviceType)
@@ -260,24 +245,25 @@ public static partial class UXInput
             }
         }
 
+        private static void InvalidateContextCache()
+        {
+            _cachedDevice = null;
+            _cachedDeviceId = -1;
+            _cachedContext = default;
+        }
+
         private static InputContext ResolveInitialContext()
         {
-            InputDevice device;
-            if (TryFindInitialGamepadLikeDevice(out device))
+            if (TryFindPreferredDevice(out InputDevice device))
             {
-                return BuildContext(device);
-            }
-
-            if (TryFindInitialJoystick(out device))
-            {
-                return BuildContext(device);
+                return ResolveContext(device);
             }
 
             if (IsMobilePlatform())
             {
                 if (Touchscreen.current != null && Touchscreen.current.added)
                 {
-                    return BuildContext(Touchscreen.current);
+                    return ResolveContext(Touchscreen.current);
                 }
 
                 return InputContext.Touch(ResolveDeviceType());
@@ -285,36 +271,48 @@ public static partial class UXInput
 
             if (Keyboard.current != null && Keyboard.current.added)
             {
-                return BuildContext(Keyboard.current);
+                return ResolveContext(Keyboard.current);
             }
 
             if (Mouse.current != null && Mouse.current.added)
             {
-                return BuildContext(Mouse.current);
+                return ResolveContext(Mouse.current);
             }
 
             if (Touchscreen.current != null && Touchscreen.current.added)
             {
-                return BuildContext(Touchscreen.current);
+                return ResolveContext(Touchscreen.current);
             }
 
             return ResolvePlatformDefaultContext();
         }
 
-        private static InputContext ResolveFallbackContext(int removedDeviceId)
+        private static bool TryFindPreferredDevice(out InputDevice device)
         {
-            for (int i = InputSystem.devices.Count - 1; i >= 0; i--)
+            InputDevice fallbackJoystick = null;
+            var devices = InputSystem.devices;
+            for (int i = 0; i < devices.Count; i++)
             {
-                InputDevice device = InputSystem.devices[i];
-                if (device == null || device.deviceId == removedDeviceId || !device.added || !IsRelevantDevice(device))
+                InputDevice candidate = devices[i];
+                if (candidate == null || !candidate.added)
                 {
                     continue;
                 }
 
-                return BuildContext(device);
+                if (IsGamepadLike(candidate))
+                {
+                    device = candidate;
+                    return true;
+                }
+
+                if (fallbackJoystick == null && candidate is Joystick)
+                {
+                    fallbackJoystick = candidate;
+                }
             }
 
-            return ResolvePlatformDefaultContext();
+            device = fallbackJoystick;
+            return fallbackJoystick != null;
         }
 
         private static InputContext ResolvePlatformDefaultContext()
@@ -348,7 +346,7 @@ public static partial class UXInput
 
         private static bool ShouldPromoteAddedDevice(InputDevice device)
         {
-            if (device == null || !IsRelevantDevice(device))
+            if (device == null || ResolveInputType(device) == InputType.Unknown)
             {
                 return false;
             }
@@ -362,75 +360,6 @@ public static partial class UXInput
                    (Current.InputType == InputType.KeyboardMouse || Current.InputType == InputType.Touch);
         }
 
-        private static bool ShouldPromoteInitialContext(InputContext context)
-        {
-            if (!context.IsValid || context.DeviceId < 0)
-            {
-                return false;
-            }
-
-            if ((context.InputType == InputType.Gamepad || context.InputType == InputType.Joystick) &&
-                Current.InputType != InputType.Gamepad &&
-                Current.InputType != InputType.Joystick)
-            {
-                return true;
-            }
-
-            return Current.InputType == InputType.Unknown;
-        }
-
-        private static bool TryFindInitialGamepadLikeDevice(out InputDevice device)
-        {
-            for (int i = 0; i < InputSystem.devices.Count; i++)
-            {
-                InputDevice candidate = InputSystem.devices[i];
-                if (candidate != null && candidate.added && IsGamepadLike(candidate))
-                {
-                    device = candidate;
-                    return true;
-                }
-            }
-
-            device = null;
-            return false;
-        }
-
-        private static bool TryFindInitialJoystick(out InputDevice device)
-        {
-            for (int i = 0; i < InputSystem.devices.Count; i++)
-            {
-                InputDevice candidate = InputSystem.devices[i];
-                if (candidate != null && candidate.added && candidate is Joystick)
-                {
-                    device = candidate;
-                    return true;
-                }
-            }
-
-            device = null;
-            return false;
-        }
-
-        private static bool IsInitialProbeActive()
-        {
-            return _initialDeviceProbeFramesRemaining > 0;
-        }
-
-        private static bool IsRelevantDevice(InputDevice device)
-        {
-            return device is Keyboard ||
-                   device is Mouse ||
-                   device is Touchscreen ||
-                   device is Pen ||
-                   device is Joystick ||
-                   IsGamepadLike(device);
-        }
-
-        private static bool IsKeyboardMouseDevice(InputDevice device)
-        {
-            return device is Keyboard || device is Mouse;
-        }
-
         private static InputType ResolveInputType(InputDevice device)
         {
             if (device == null)
@@ -438,7 +367,7 @@ public static partial class UXInput
                 return InputType.Unknown;
             }
 
-            if (IsKeyboardMouseDevice(device))
+            if (device is Keyboard || device is Mouse)
             {
                 return InputType.KeyboardMouse;
             }
@@ -480,12 +409,18 @@ public static partial class UXInput
 
         private static bool IsMeaningfulControl(InputControl control)
         {
-            if (control == null || control.device == null || !IsRelevantDevice(control.device))
+            if (control == null)
             {
                 return false;
             }
 
-            if (control.synthetic && !(control.device is Keyboard keyboard && control == keyboard.anyKey))
+            InputDevice device = control.device;
+            if (device == null || !IsRelevantControlDevice(device))
+            {
+                return false;
+            }
+
+            if (control.synthetic && !(device is Keyboard keyboard && control == keyboard.anyKey))
             {
                 return false;
             }
@@ -505,6 +440,17 @@ public static partial class UXInput
             }
         }
 
+        private static bool IsRelevantControlDevice(InputDevice device)
+        {
+            // AnyInput 只绑定到这些设备的具名控件，无需再做布局字符串匹配。
+            return device is Keyboard
+                   || device is Mouse
+                   || device is Touchscreen
+                   || device is Pen
+                   || device is Gamepad
+                   || device is Joystick;
+        }
+
         private static bool IsGamepadLike(InputDevice device)
         {
             if (device == null)
@@ -517,93 +463,87 @@ public static partial class UXInput
                 return true;
             }
 
-            string layout = device.layout ?? string.Empty;
-            if (ContainsIgnoreCase(layout, "Mouse") ||
-                ContainsIgnoreCase(layout, "Touch") ||
-                ContainsIgnoreCase(layout, "Pen"))
+            string layout = device.layout;
+            if (string.IsNullOrWhiteSpace(layout)
+                || InputStringUtility.ContainsIgnoreCase(layout, "Mouse")
+                || InputStringUtility.ContainsIgnoreCase(layout, "Touch")
+                || InputStringUtility.ContainsIgnoreCase(layout, "Pen"))
             {
                 return false;
             }
 
-            return ContainsIgnoreCase(layout, "Gamepad") ||
-                   ContainsIgnoreCase(layout, "Controller") ||
-                   ContainsIgnoreCase(layout, "JoyCon") ||
-                   ContainsIgnoreCase(layout, "DualShock") ||
-                   ContainsIgnoreCase(layout, "DualSense");
+            return InputStringUtility.ContainsIgnoreCase(layout, "Gamepad")
+                   || InputStringUtility.ContainsIgnoreCase(layout, "Controller")
+                   || InputStringUtility.ContainsIgnoreCase(layout, "JoyCon")
+                   || InputStringUtility.ContainsIgnoreCase(layout, "DualShock")
+                   || InputStringUtility.ContainsIgnoreCase(layout, "DualSense");
         }
 
-        private static InputProfile ResolveInputProfile(InputDevice device, int vendorId, int productId)
+        private static InputProfile ResolveInputProfile(InputDevice device, InputType inputType)
         {
             if (device == null)
             {
                 return InputProfile.Unknown;
             }
 
-            if (IsKeyboardMouseDevice(device))
+            switch (inputType)
             {
-                return InputProfile.KeyboardMouse;
+                case InputType.KeyboardMouse:
+                    return InputProfile.KeyboardMouse;
+                case InputType.Touch:
+                    return InputProfile.Touch;
+                case InputType.Gamepad:
+                case InputType.Joystick:
+                    break;
+                default:
+                    return InputProfile.Unknown;
             }
 
-            if (device is Touchscreen || device is Pen)
-            {
-                return InputProfile.Touch;
-            }
-
-            string source = string.Concat(
-                device.layout,
-                " ",
-                device.displayName,
-                " ",
-                device.name,
-                " ",
-                device.description.manufacturer,
-                " ",
-                device.description.product,
-                " ",
-                device.description.interfaceName);
-
-            if (ContainsIgnoreCase(source, "Steam Deck"))
+            if (DeviceTextContains(device, "Steam Deck"))
             {
                 return InputProfile.SteamDeck;
             }
 
-            if (ContainsIgnoreCase(source, "Steam"))
+            if (DeviceTextContains(device, "Steam"))
             {
                 return InputProfile.SteamController;
             }
 
-            if (vendorId == 0x054C ||
-                ContainsIgnoreCase(source, "DualShock") ||
-                ContainsIgnoreCase(source, "DualSense") ||
-                ContainsIgnoreCase(source, "PlayStation"))
+            if (DeviceTextContains(device, "DualShock")
+                || DeviceTextContains(device, "DualSense")
+                || DeviceTextContains(device, "PlayStation"))
             {
                 return InputProfile.PlayStation;
             }
 
-            if (vendorId == 0x045E || ContainsIgnoreCase(source, "Xbox"))
+            if (DeviceTextContains(device, "Xbox"))
             {
                 return InputProfile.Xbox;
             }
 
-            if (vendorId == 0x057E ||
-                ContainsIgnoreCase(source, "Switch") ||
-                ContainsIgnoreCase(source, "Joy-Con") ||
-                ContainsIgnoreCase(source, "JoyCon"))
+            if (DeviceTextContains(device, "Switch")
+                || DeviceTextContains(device, "Joy-Con")
+                || DeviceTextContains(device, "JoyCon"))
             {
                 return InputProfile.Switch;
             }
 
-            if (device is Joystick)
-            {
-                return InputProfile.GenericJoystick;
-            }
+            return inputType == InputType.Joystick ? InputProfile.GenericJoystick : InputProfile.GenericGamepad;
+        }
 
-            if (IsGamepadLike(device))
-            {
-                return InputProfile.GenericGamepad;
-            }
+        private static bool DeviceTextContains(InputDevice device, string token)
+        {
+            return InputStringUtility.ContainsIgnoreCase(device.layout, token)
+                   || InputStringUtility.ContainsIgnoreCase(device.displayName, token)
+                   || InputStringUtility.ContainsIgnoreCase(device.name, token)
+                   || InputStringUtility.ContainsIgnoreCase(device.description.manufacturer, token)
+                   || InputStringUtility.ContainsIgnoreCase(device.description.product, token)
+                   || InputStringUtility.ContainsIgnoreCase(device.description.interfaceName, token);
+        }
 
-            return InputProfile.Unknown;
+        private static string GetDeviceName(InputDevice device)
+        {
+            return !string.IsNullOrWhiteSpace(device.displayName) ? device.displayName : device.name;
         }
 
         private static bool IsMobilePlatform()
@@ -631,174 +571,18 @@ public static partial class UXInput
 #if UNITY_STANDALONE_LINUX
             string deviceModel = SystemInfo.deviceModel;
             string deviceName = SystemInfo.deviceName;
-            return ContainsIgnoreCase(deviceModel, "Steam Deck") ||
-                   ContainsIgnoreCase(deviceName, "Steam Deck");
+            return InputStringUtility.ContainsIgnoreCase(deviceModel, "Steam Deck") ||
+                   InputStringUtility.ContainsIgnoreCase(deviceName, "Steam Deck");
 #else
             return false;
 #endif
         }
 
-        private static bool TryParseVendorProductIds(string capabilities, out int vendorId, out int productId)
-        {
-            vendorId = 0;
-            productId = 0;
-            if (string.IsNullOrWhiteSpace(capabilities))
-            {
-                return false;
-            }
-
-            TryReadCapabilityInt(capabilities, VendorIdField, out vendorId);
-            TryReadCapabilityInt(capabilities, ProductIdField, out productId);
-            return vendorId != 0 || productId != 0;
-        }
-
-        private static bool TryReadCapabilityInt(string source, string fieldName, out int value)
-        {
-            value = 0;
-            int fieldIndex = FindQuotedField(source, fieldName);
-            if (fieldIndex < 0)
-            {
-                return false;
-            }
-
-            int colonIndex = FindColon(source, fieldIndex + fieldName.Length + 2);
-            if (colonIndex < 0)
-            {
-                return false;
-            }
-
-            int index = colonIndex + 1;
-            while (index < source.Length && char.IsWhiteSpace(source[index]))
-            {
-                index++;
-            }
-
-            if (index < source.Length && source[index] == '"')
-            {
-                index++;
-            }
-
-            bool isHex = index + 1 < source.Length && source[index] == '0' && (source[index + 1] == 'x' || source[index + 1] == 'X');
-            if (isHex)
-            {
-                index += 2;
-            }
-
-            bool hasDigit = false;
-            int result = 0;
-            while (index < source.Length)
-            {
-                int digit = isHex ? HexValue(source[index]) : DecimalValue(source[index]);
-                if (digit < 0)
-                {
-                    break;
-                }
-
-                hasDigit = true;
-                result = isHex ? (result << 4) + digit : result * 10 + digit;
-                index++;
-            }
-
-            if (!hasDigit)
-            {
-                return false;
-            }
-
-            value = result;
-            return true;
-        }
-
-        private static int FindQuotedField(string source, string fieldName)
-        {
-            int end = source.Length - fieldName.Length - 2;
-            for (int i = 0; i <= end; i++)
-            {
-                if (source[i] != '"')
-                {
-                    continue;
-                }
-
-                int nameStart = i + 1;
-                int nameEnd = nameStart + fieldName.Length;
-                if (nameEnd >= source.Length || source[nameEnd] != '"')
-                {
-                    continue;
-                }
-
-                bool matched = true;
-                for (int c = 0; c < fieldName.Length; c++)
-                {
-                    if (source[nameStart + c] != fieldName[c])
-                    {
-                        matched = false;
-                        break;
-                    }
-                }
-
-                if (matched)
-                {
-                    return i;
-                }
-            }
-
-            return -1;
-        }
-
-        private static int FindColon(string source, int startIndex)
-        {
-            for (int i = startIndex; i < source.Length; i++)
-            {
-                char value = source[i];
-                if (value == ':')
-                {
-                    return i;
-                }
-
-                if (!char.IsWhiteSpace(value))
-                {
-                    return -1;
-                }
-            }
-
-            return -1;
-        }
-
-        private static int DecimalValue(char value)
-        {
-            return value >= '0' && value <= '9' ? value - '0' : -1;
-        }
-
-        private static int HexValue(char value)
-        {
-            if (value >= '0' && value <= '9')
-            {
-                return value - '0';
-            }
-
-            if (value >= 'a' && value <= 'f')
-            {
-                return value - 'a' + 10;
-            }
-
-            if (value >= 'A' && value <= 'F')
-            {
-                return value - 'A' + 10;
-            }
-
-            return -1;
-        }
-
-        private static bool ContainsIgnoreCase(string source, string value)
-        {
-            return !string.IsNullOrEmpty(source) &&
-                   !string.IsNullOrEmpty(value) &&
-                   source.IndexOf(value, StringComparison.OrdinalIgnoreCase) >= 0;
-        }
-
         private static void ResetStaticState(bool clearEventListeners)
         {
+            InvalidateContextCache();
             Current = InputContext.KeyboardMouse(ResolveDeviceType());
-            _initialDeviceProbeFramesRemaining = 0;
+            _currentProfileId = InputProfileCatalog.GetId(Current.InputProfile);
             _initialized = false;
 
             if (clearEventListeners)
@@ -846,6 +630,9 @@ public static partial class UXInput
             SteamController = 9
         }
 
+        /// <summary>
+        /// 当前输入上下文。设备连接期间由 <see cref="Watch"/> 缓存，事件只传引用与稳定字符串。
+        /// </summary>
         public readonly struct InputContext : IEquatable<InputContext>
         {
             public readonly InputDeviceType DeviceType;
@@ -853,13 +640,7 @@ public static partial class UXInput
             public readonly InputProfile InputProfile;
             public readonly string ControlScheme;
             public readonly int DeviceId;
-            public readonly int VendorId;
-            public readonly int ProductId;
             public readonly string DeviceName;
-            public readonly string Layout;
-            public readonly string InterfaceName;
-            public readonly string Manufacturer;
-            public readonly string Product;
 
             public bool IsValid => DeviceType != InputDeviceType.Unknown && InputType != InputType.Unknown;
 
@@ -869,26 +650,14 @@ public static partial class UXInput
                 InputProfile inputProfile,
                 string controlScheme,
                 int deviceId,
-                int vendorId,
-                int productId,
-                string deviceName,
-                string layout,
-                string interfaceName,
-                string manufacturer,
-                string product)
+                string deviceName)
             {
                 DeviceType = deviceType;
                 InputType = inputType;
                 InputProfile = inputProfile;
                 ControlScheme = controlScheme ?? string.Empty;
                 DeviceId = deviceId;
-                VendorId = vendorId;
-                ProductId = productId;
                 DeviceName = deviceName ?? string.Empty;
-                Layout = layout ?? string.Empty;
-                InterfaceName = interfaceName ?? string.Empty;
-                Manufacturer = manufacturer ?? string.Empty;
-                Product = product ?? string.Empty;
             }
 
             public static InputContext KeyboardMouse(InputDeviceType deviceType)
@@ -899,13 +668,7 @@ public static partial class UXInput
                     InputProfile.KeyboardMouse,
                     KeyboardMouseScheme,
                     -1,
-                    0,
-                    0,
-                    DefaultKeyboardMouseName,
-                    KeyboardMouseScheme,
-                    string.Empty,
-                    string.Empty,
-                    string.Empty);
+                    DefaultKeyboardMouseName);
             }
 
             public static InputContext KeyboardMouse(InputDeviceType deviceType, InputDevice device)
@@ -920,13 +683,7 @@ public static partial class UXInput
                     InputProfile.KeyboardMouse,
                     KeyboardMouseScheme,
                     device != null ? device.deviceId : -1,
-                    0,
-                    0,
-                    deviceName,
-                    device != null ? device.layout : KeyboardMouseScheme,
-                    device != null ? device.description.interfaceName : string.Empty,
-                    device != null ? device.description.manufacturer : string.Empty,
-                    device != null ? device.description.product : string.Empty);
+                    deviceName);
             }
 
             public static InputContext Touch(InputDeviceType deviceType)
@@ -937,13 +694,7 @@ public static partial class UXInput
                     InputProfile.Touch,
                     TouchScheme,
                     -1,
-                    0,
-                    0,
-                    DefaultTouchName,
-                    TouchScheme,
-                    string.Empty,
-                    string.Empty,
-                    string.Empty);
+                    DefaultTouchName);
             }
 
             public static InputContext Touch(InputDeviceType deviceType, InputDevice device)
@@ -958,29 +709,17 @@ public static partial class UXInput
                     InputProfile.Touch,
                     TouchScheme,
                     device != null ? device.deviceId : -1,
-                    0,
-                    0,
-                    deviceName,
-                    device != null ? device.layout : TouchScheme,
-                    device != null ? device.description.interfaceName : string.Empty,
-                    device != null ? device.description.manufacturer : string.Empty,
-                    device != null ? device.description.product : string.Empty);
+                    deviceName);
             }
 
             public bool Equals(InputContext other)
             {
-                return DeviceType == other.DeviceType &&
-                       InputType == other.InputType &&
-                       InputProfile == other.InputProfile &&
-                       DeviceId == other.DeviceId &&
-                       VendorId == other.VendorId &&
-                       ProductId == other.ProductId &&
-                       string.Equals(ControlScheme, other.ControlScheme, StringComparison.Ordinal) &&
-                       string.Equals(DeviceName, other.DeviceName, StringComparison.Ordinal) &&
-                       string.Equals(Layout, other.Layout, StringComparison.Ordinal) &&
-                       string.Equals(InterfaceName, other.InterfaceName, StringComparison.Ordinal) &&
-                       string.Equals(Manufacturer, other.Manufacturer, StringComparison.Ordinal) &&
-                       string.Equals(Product, other.Product, StringComparison.Ordinal);
+                return DeviceType == other.DeviceType
+                       && InputType == other.InputType
+                       && InputProfile == other.InputProfile
+                       && DeviceId == other.DeviceId
+                       && string.Equals(ControlScheme, other.ControlScheme, StringComparison.Ordinal)
+                       && string.Equals(DeviceName, other.DeviceName, StringComparison.Ordinal);
             }
 
             public override bool Equals(object obj)
@@ -996,14 +735,8 @@ public static partial class UXInput
                     hash = (hash * 397) ^ (int)InputType;
                     hash = (hash * 397) ^ (int)InputProfile;
                     hash = (hash * 397) ^ DeviceId;
-                    hash = (hash * 397) ^ VendorId;
-                    hash = (hash * 397) ^ ProductId;
                     hash = (hash * 397) ^ (ControlScheme != null ? ControlScheme.GetHashCode() : 0);
                     hash = (hash * 397) ^ (DeviceName != null ? DeviceName.GetHashCode() : 0);
-                    hash = (hash * 397) ^ (Layout != null ? Layout.GetHashCode() : 0);
-                    hash = (hash * 397) ^ (InterfaceName != null ? InterfaceName.GetHashCode() : 0);
-                    hash = (hash * 397) ^ (Manufacturer != null ? Manufacturer.GetHashCode() : 0);
-                    hash = (hash * 397) ^ (Product != null ? Product.GetHashCode() : 0);
                     return hash;
                 }
             }

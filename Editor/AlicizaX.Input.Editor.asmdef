@@ -20,16 +20,6 @@
     "defineConstraints": [],
     "versionDefines": [
         {
-            "name": "com.unity.ugui",
-            "expression": "2.0.0",
-            "define": "TEXTMESHPRO_SUPPORT"
-        },
-        {
-            "name": "com.unity.textmeshpro",
-            "expression": "",
-            "define": "TEXTMESHPRO_SUPPORT"
-        },
-        {
             "name": "com.unity.inputsystem",
             "expression": "1.0.0",
             "define": "INPUTSYSTEM_SUPPORT"
