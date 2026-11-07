@@ -9,7 +9,7 @@ public sealed class InputGlyphImage : InputGlyphBehaviourBase
     [Header("Output")]
     [SerializeField] private Image targetImage;
 
-    protected override void AutoAssignTarget()
+    protected override void AssignTargetIfMissing()
     {
         if (targetImage == null)
         {
@@ -28,7 +28,7 @@ public sealed class InputGlyphImage : InputGlyphBehaviourBase
         Sprite sprite = null;
         if (action != null)
         {
-            UXInput.Glyph.TryGetUISpriteForActionPath(action, CompositePartName, out sprite);
+            UXInput.Glyph.TryGetSprite(action, CompositePartName, out sprite);
         }
 
         if (targetImage.sprite != sprite)

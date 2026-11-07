@@ -41,6 +41,7 @@ namespace AlicizaX.Input.Tests
         public void ComponentRefreshesWithoutTargetAndDoesNotThrow()
         {
             var gameObject = new GameObject("glyph-text-test", typeof(RectTransform));
+            gameObject.SetActive(false);
             try
             {
                 var glyphText = gameObject.AddComponent<InputGlyphText>();

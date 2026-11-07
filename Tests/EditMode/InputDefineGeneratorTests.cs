@@ -34,11 +34,11 @@ namespace AlicizaX.Input.Tests
                 Assert.That(code, Does.Contain("public static class Gameplay"));
                 Assert.That(code, Does.Contain("JumpPath"));
                 Assert.That(code, Does.Contain("JumpAction => UXInput.Reader.ResolveAction(JumpPath)"));
-                Assert.That(code, Does.Contain("ReadButton(JumpPath)"));
+                Assert.That(code, Does.Contain("IsButtonPressed(JumpPath)"));
                 Assert.That(code, Does.Contain("ReadValue<Vector2>(MovePath)"));
 
-                Assert.That(code, Does.Not.Contain("ReadButtonOnce"));
-                Assert.That(code, Does.Not.Contain("ReadPressedOnce"));
+                Assert.That(code, Does.Not.Contain("IsButtonPressedOnce"));
+                Assert.That(code, Does.Not.Contain("IsPressedOnce"));
                 Assert.That(code, Does.Not.Contain("Toggle"));
                 Assert.That(code, Does.Not.Contain("ResetToggledButton"));
             }

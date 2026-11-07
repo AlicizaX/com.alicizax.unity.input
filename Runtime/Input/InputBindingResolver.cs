@@ -8,7 +8,7 @@ using UnityEngine.InputSystem;
 internal static class InputBindingResolver
 {
     /// <summary>
-    /// 为交互式重绑定选择目标绑定：优先匹配分组/限定路径，否则回退到首个可用绑定。
+    /// 为交互式重绑定选择符合指定部分、分组或限定路径的绑定。
     /// </summary>
     internal static int SelectForRebind(
         InputAction action,
@@ -22,8 +22,6 @@ internal static class InputBindingResolver
         }
 
         bool searchingForCompositePart = !string.IsNullOrEmpty(compositePartName);
-        int fallbackPart = -1;
-        int fallbackNonComposite = -1;
 
         for (int i = 0; i < action.bindings.Count; i++)
         {
@@ -42,34 +40,13 @@ internal static class InputBindingResolver
                 continue;
             }
 
-            bool matchesTarget = MatchesRebindTarget(binding, bindingGroup, requiredControlPath);
-            if (binding.isPartOfComposite)
+            if (MatchesRebindTarget(binding, bindingGroup, requiredControlPath))
             {
-                if (fallbackPart < 0)
-                {
-                    fallbackPart = i;
-                }
-
-                if (matchesTarget)
-                {
-                    return i;
-                }
-            }
-            else
-            {
-                if (fallbackNonComposite < 0)
-                {
-                    fallbackNonComposite = i;
-                }
-
-                if (matchesTarget)
-                {
-                    return i;
-                }
+                return i;
             }
         }
 
-        return fallbackNonComposite >= 0 ? fallbackNonComposite : fallbackPart;
+        return -1;
     }
 
     /// <summary>
@@ -78,7 +55,7 @@ internal static class InputBindingResolver
     internal static int SelectForDisplay(
         InputAction action,
         string compositePartName,
-        UXInput.Watch.InputProfile profile,
+        InputWatch.InputProfile profile,
         string[] bindingGroupHints)
     {
         if (action == null)
@@ -111,7 +88,7 @@ internal static class InputBindingResolver
                 continue;
             }
 
-            string path = InputStringUtility.GetEffectivePath(in candidate);
+            string path = candidate.effectivePath;
             if (string.IsNullOrWhiteSpace(path))
             {
                 continue;
@@ -154,7 +131,7 @@ internal static class InputBindingResolver
     private static int Score(
         in InputBinding binding,
         string path,
-        UXInput.Watch.InputProfile profile,
+        InputWatch.InputProfile profile,
         string[] bindingGroupHints)
     {
         int score = 0;
@@ -189,7 +166,7 @@ internal static class InputBindingResolver
 
         for (int i = 0; i < hints.Length; i++)
         {
-            if (InputStringUtility.GroupsContain(groups, hints[i]))
+            if (InputStringUtility.ContainsGroup(groups, hints[i]))
             {
                 return true;
             }
@@ -198,14 +175,14 @@ internal static class InputBindingResolver
         return false;
     }
 
-    private static bool MatchesProfilePath(string path, UXInput.Watch.InputProfile profile)
+    private static bool MatchesProfilePath(string path, InputWatch.InputProfile profile)
     {
         switch (profile)
         {
-            case UXInput.Watch.InputProfile.KeyboardMouse:
+            case InputWatch.InputProfile.KeyboardMouse:
                 return InputStringUtility.StartsWith(path, "<Keyboard>")
                        || InputStringUtility.StartsWith(path, "<Mouse>");
-            case UXInput.Watch.InputProfile.Touch:
+            case InputWatch.InputProfile.Touch:
                 return InputStringUtility.StartsWith(path, "<Touchscreen>")
                        || InputStringUtility.StartsWith(path, "<Pen>");
             default:
@@ -227,7 +204,7 @@ internal static class InputBindingResolver
 
         if (!string.IsNullOrEmpty(bindingGroup))
         {
-            return InputStringUtility.GroupsContain(binding.groups, bindingGroup);
+            return InputStringUtility.ContainsGroup(binding.groups, bindingGroup);
         }
 
         return true;

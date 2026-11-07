@@ -5,6 +5,7 @@
         "AlicizaX.Framework.Runtime",
         "Unity.ugui",
         "Unity.InputSystem",
+        "UniTask.Runtime",
         "Unity.TextMeshPro"
     ],
     "optionalUnityReferences": ["TestAssemblies"],

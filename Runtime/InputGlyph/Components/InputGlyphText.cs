@@ -15,7 +15,7 @@ public sealed class InputGlyphText : InputGlyphBehaviourBase
     private string _cachedToken;
     private string _cachedText;
 
-    protected override void AutoAssignTarget()
+    protected override void AssignTargetIfMissing()
     {
         if (targetText == null)
         {
@@ -45,7 +45,7 @@ public sealed class InputGlyphText : InputGlyphBehaviourBase
             return;
         }
 
-        string replacementToken = UXInput.Glyph.TryGetTMPTagForActionPath(
+        string replacementToken = UXInput.Glyph.TryGetTag(
             action,
             CompositePartName,
             out string tag,

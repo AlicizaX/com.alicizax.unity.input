@@ -9,7 +9,6 @@ namespace UnityEngine.UI
         [SerializeField] private UIHolderObjectBase _holder;
         [SerializeField] private InputActionReference _hotkeyAction;
         [SerializeField] private EHotkeyPressType _hotkeyPressType = EHotkeyPressType.Performed;
-        [SerializeField] private bool _hotkeyConsumesInput = true;
 
         public InputActionReference HotkeyAction
         {
@@ -38,7 +37,6 @@ namespace UnityEngine.UI
 
         public EHotkeyPressType HotkeyPressType => _hotkeyPressType;
         public UIHolderObjectBase HotkeyHolder => _holder;
-        public bool HotkeyConsumesInput => _hotkeyConsumesInput;
 
         internal bool IsRegistered;
         internal InputAction RegisteredAction;
@@ -47,12 +45,11 @@ namespace UnityEngine.UI
 
         protected virtual void Reset()
         {
-            AutoAssignHolder(true);
+            AssignHolder();
         }
 
         protected virtual void OnEnable()
         {
-            AutoAssignHolder(false);
             this.BindHotKey();
         }
 
@@ -64,22 +61,17 @@ namespace UnityEngine.UI
 #if UNITY_EDITOR
         protected virtual void OnValidate()
         {
-            AutoAssignHolder(true);
+            AssignHolder();
         }
 #endif
 
-        public abstract void HotkeyActionTrigger();
+        public abstract void TriggerHotkey();
 
         /// <summary>
-        /// 解析所属 Holder。运行时只在字段为空时解析一次，避免每次启用覆盖序列化结果。
+        /// 编辑器期解析所属 Holder。Holder 位于同一预制体内，运行时直接使用序列化结果。
         /// </summary>
-        protected void AutoAssignHolder(bool force)
+        private void AssignHolder()
         {
-            if (!force && _holder != null)
-            {
-                return;
-            }
-
             _holder = GetComponentInParent<UIHolderObjectBase>(true);
         }
     }

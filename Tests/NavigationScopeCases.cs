@@ -33,13 +33,13 @@ namespace AlicizaX.Input.Tests
                 typeof(EventSystem).GetMethod("OnEnable", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(eventSystem, null);
             EventSystem.current = eventSystem;
             UXNavigationSystem.SetRequireSelection(true, true);
-            Invoke("Initialize");
+            UXInput.Initialize(null, null);
         }
 
         [TearDown]
         public void TearDown()
         {
-            Invoke("Shutdown");
+            UXInput.Shutdown();
             if (!Application.isPlaying && eventSystem != null)
                 typeof(EventSystem).GetMethod("OnDisable", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(eventSystem, null);
             foreach (GameObject obj in objects)
@@ -207,9 +207,9 @@ namespace AlicizaX.Input.Tests
         {
             var scope = Scope(0);
             var button = AddButton(scope);
-            Invoke("Shutdown");
+            UXInput.Shutdown();
             Assert.That(button.navigation.mode, Is.EqualTo(Navigation.Mode.Automatic));
-            Invoke("Initialize");
+            UXInput.Initialize(null, null);
             Assert.That(scope.NavigationSuppressed, Is.False);
             Assert.That(eventSystem.currentSelectedGameObject, Is.SameAs(button.gameObject));
         }
@@ -227,7 +227,7 @@ namespace AlicizaX.Input.Tests
 
             Set(scope, "_bakedSelectables", new Selectable[] { baked });
             Set(scope, "_listsBuilt", false);
-            InvokeScope(scope, "EnsureListsBuilt");
+            InvokeScope(scope, "InitializeLists");
             Invoke("RegisterScope", scope);
 
             Assert.That(scope.BakedSelectableCount, Is.EqualTo(1));

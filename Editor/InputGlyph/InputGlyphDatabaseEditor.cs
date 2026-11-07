@@ -73,7 +73,7 @@ public sealed class InputGlyphDatabaseEditor : Editor
         }
 
         InputGlyphDatabase database = CreateInstance<InputGlyphDatabase>();
-        InputGlyphDatabaseWindow.EnsureFixedProfiles(database);
+        InputGlyphDatabaseWindow.SyncFixedProfiles(database);
         AssetDatabase.CreateAsset(database, path);
         AssetDatabase.SaveAssets();
         AssetDatabase.Refresh();
@@ -130,7 +130,7 @@ internal sealed class InputGlyphDatabaseWindow : EditorWindow
     {
         InputGlyphDatabaseWindow window = GetWindow<InputGlyphDatabaseWindow>("Input Glyph Database", true);
         window.minSize = new Vector2(920f, 560f);
-        window.EnsureDatabaseForWindow();
+        window.ResolveDatabaseForWindow();
         window.Show();
     }
 
@@ -146,7 +146,7 @@ internal sealed class InputGlyphDatabaseWindow : EditorWindow
     {
         if (_database == null)
         {
-            EnsureDatabaseForWindow();
+            ResolveDatabaseForWindow();
         }
     }
 
@@ -165,7 +165,7 @@ internal sealed class InputGlyphDatabaseWindow : EditorWindow
 
         _database = database;
         Undo.RecordObject(_database, "Initialize Input Glyph Database");
-        if (EnsureFixedProfiles(_database))
+        if (SyncFixedProfiles(_database))
         {
             EditorUtility.SetDirty(_database);
         }
@@ -176,7 +176,7 @@ internal sealed class InputGlyphDatabaseWindow : EditorWindow
         RefreshWindow();
     }
 
-    private void EnsureDatabaseForWindow()
+    private void ResolveDatabaseForWindow()
     {
         InputGlyphDatabase database = null;
         string[] guids = AssetDatabase.FindAssets("t:InputGlyphDatabase");
@@ -207,7 +207,7 @@ internal sealed class InputGlyphDatabaseWindow : EditorWindow
             }
 
             database = CreateInstance<InputGlyphDatabase>();
-            EnsureFixedProfiles(database);
+            SyncFixedProfiles(database);
             AssetDatabase.CreateAsset(database, path);
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
@@ -264,13 +264,13 @@ internal sealed class InputGlyphDatabaseWindow : EditorWindow
         _searchField.RegisterValueChangedCallback(OnSearchChanged);
         toolbar.Add(_searchField);
 
-        ToolbarButton ensureButton = new ToolbarButton(EnsureDefaults)
+        ToolbarButton defaultsButton = new ToolbarButton(ApplyDefaults)
         {
             text = "Sync Profiles",
             tooltip = "Sync fixed profile ids, fallback chain, and binding-group hints",
         };
-        ApplyToolbarButtonStyle(ensureButton);
-        toolbar.Add(ensureButton);
+        ApplyToolbarButtonStyle(defaultsButton);
+        toolbar.Add(defaultsButton);
 
         ToolbarButton saveButton = new ToolbarButton(SaveAsset)
         {
@@ -320,7 +320,7 @@ internal sealed class InputGlyphDatabaseWindow : EditorWindow
         }
 
         _serializedDatabase.Update();
-        EnsureSerializedProfiles();
+        SyncSerializedProfiles();
         RefreshProfileSelection();
         BuildProfileContent();
     }
@@ -907,7 +907,7 @@ internal sealed class InputGlyphDatabaseWindow : EditorWindow
         BuildProfileContent();
     }
 
-    private void EnsureDefaults()
+    private void ApplyDefaults()
     {
         if (_database == null)
         {
@@ -915,7 +915,7 @@ internal sealed class InputGlyphDatabaseWindow : EditorWindow
         }
 
         Undo.RecordObject(_database, "Sync Input Glyph Fixed Profiles");
-        if (EnsureFixedProfiles(_serializedDatabase))
+        if (SyncFixedProfiles(_serializedDatabase))
         {
             EditorUtility.SetDirty(_database);
         }
@@ -962,9 +962,9 @@ internal sealed class InputGlyphDatabaseWindow : EditorWindow
         EditorUtility.SetDirty(_database);
     }
 
-    private void EnsureSerializedProfiles()
+    private void SyncSerializedProfiles()
     {
-        if (EnsureFixedProfiles(_serializedDatabase))
+        if (SyncFixedProfiles(_serializedDatabase))
         {
             EditorUtility.SetDirty(_database);
             _database.EditorRefreshCache();
@@ -1000,7 +1000,7 @@ internal sealed class InputGlyphDatabaseWindow : EditorWindow
         return null;
     }
 
-    internal static bool EnsureFixedProfiles(InputGlyphDatabase database)
+    internal static bool SyncFixedProfiles(InputGlyphDatabase database)
     {
         if (database == null)
         {
@@ -1008,7 +1008,7 @@ internal sealed class InputGlyphDatabaseWindow : EditorWindow
         }
 
         SerializedObject serializedDatabase = new SerializedObject(database);
-        bool changed = EnsureFixedProfiles(serializedDatabase);
+        bool changed = SyncFixedProfiles(serializedDatabase);
         if (changed)
         {
             database.EditorRefreshCache();
@@ -1020,7 +1020,7 @@ internal sealed class InputGlyphDatabaseWindow : EditorWindow
     /// 只补齐缺失的固定 Profile，不截断、不重排、不清空已有条目。
     /// 鍙ˉ榻愮己澶辩殑鍥哄畾 Profile锛屼笉鎴柇銆佷笉閲嶆帓銆佷笉娓呯┖宸叉湁鏉＄洰銆?
     /// </summary>
-    private static bool EnsureFixedProfiles(SerializedObject serializedDatabase)
+    private static bool SyncFixedProfiles(SerializedObject serializedDatabase)
     {
         if (serializedDatabase == null)
         {

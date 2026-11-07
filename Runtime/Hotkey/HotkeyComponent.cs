@@ -1,4 +1,5 @@
 #if INPUTSYSTEM_SUPPORT
+using System;
 using UnityEngine.EventSystems;
 
 namespace UnityEngine.UI
@@ -9,6 +10,7 @@ namespace UnityEngine.UI
         [SerializeField] private Component _component;
 
         private ISubmitHandler _submitHandler;
+        private IHotkeySubmitListener[] _submitListeners = Array.Empty<IHotkeySubmitListener>();
         private BaseEventData _eventData;
         private EventSystem _eventSystem;
 
@@ -31,9 +33,9 @@ namespace UnityEngine.UI
         }
 #endif
 
-        public override void HotkeyActionTrigger()
+        public override void TriggerHotkey()
         {
-            if (_submitHandler == null)
+            if (_submitHandler == null && _submitListeners.Length == 0)
             {
                 return;
             }
@@ -50,38 +52,87 @@ namespace UnityEngine.UI
                 _eventData = new BaseEventData(currentEventSystem);
             }
 
-            _submitHandler.OnSubmit(_eventData);
+            if (_submitHandler != null && IsActive(_submitHandler))
+            {
+                _submitHandler.OnSubmit(_eventData);
+            }
+
+            for (int i = 0; i < _submitListeners.Length; i++)
+            {
+                IHotkeySubmitListener listener = _submitListeners[i];
+                if (ReferenceEquals(listener, _submitHandler) || !IsActive(listener))
+                {
+                    continue;
+                }
+
+                listener.OnHotkeySubmit(_eventData);
+            }
+        }
+
+        private static bool IsActive(object handler)
+        {
+            return handler is not Behaviour behaviour || behaviour.isActiveAndEnabled;
         }
 
         /// <summary>
-        /// 解析 ISubmitHandler 目标。组件的接口查询不依赖 GetComponent 对接口的支持：
-        /// 先使用显式引用，否则扫描一次组件数组（只在 Awake/编辑期发生）。
+        /// 解析业务提交目标（优先非监听者），并缓存同 GameObject 的热键旁路监听者。
         /// </summary>
         private void ResolveSubmitTarget()
         {
-            if (_component != null)
+            if (_component != null && _component is not ISubmitHandler)
             {
-                _submitHandler = _component as ISubmitHandler;
-                if (_submitHandler != null)
-                {
-                    return;
-                }
-
                 _component = null;
             }
 
             Component[] components = GetComponents<Component>();
-            for (int i = 0; i < components.Length; i++)
+
+            if (_component == null)
             {
-                if (components[i] is ISubmitHandler submitHandler)
+                for (int i = 0; i < components.Length; i++)
                 {
-                    _component = components[i];
-                    _submitHandler = submitHandler;
-                    return;
+                    if (components[i] is ISubmitHandler && components[i] is not IHotkeySubmitListener)
+                    {
+                        _component = components[i];
+                        break;
+                    }
                 }
             }
 
-            _submitHandler = null;
+            if (_component == null)
+            {
+                for (int i = 0; i < components.Length; i++)
+                {
+                    if (components[i] is ISubmitHandler)
+                    {
+                        _component = components[i];
+                        break;
+                    }
+                }
+            }
+
+            _submitHandler = _component as ISubmitHandler;
+
+            int count = 0;
+            for (int i = 0; i < components.Length; i++)
+            {
+                if (components[i] is IHotkeySubmitListener)
+                {
+                    count++;
+                }
+            }
+
+            _submitListeners = count == 0
+                ? Array.Empty<IHotkeySubmitListener>()
+                : new IHotkeySubmitListener[count];
+
+            int index = 0;
+            for (int i = 0; i < components.Length; i++)
+            {
+                if (components[i] is IHotkeySubmitListener listener)
+                {
+                    _submitListeners[index++] = listener;
+                }
+            }
         }
     }
 }

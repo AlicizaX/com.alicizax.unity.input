@@ -45,12 +45,12 @@ public sealed class InputGlyphDatabase : ScriptableObject
         sprite = null;
         tmpName = null;
 
-        if (string.IsNullOrWhiteSpace(glyphKey) || !TryGetEntry(profileId, glyphKey, out Entry entry))
+        if (!TryGetEntry(profileId, glyphKey, out Entry entry))
         {
             return false;
         }
 
-        tmpName = ResolveTMPName(entry);
+        tmpName = entry.ResolvedTMPName;
         sprite = entry.Sprite;
         return sprite != null || !string.IsNullOrEmpty(tmpName);
     }
@@ -61,12 +61,12 @@ public sealed class InputGlyphDatabase : ScriptableObject
     public bool TryGetSprite(string profileId, string glyphKey, out Sprite sprite)
     {
         sprite = null;
-        if (!TryGetGlyph(profileId, glyphKey, out Sprite resolvedSprite, out _))
+        if (!TryGetEntry(profileId, glyphKey, out Entry entry))
         {
             return false;
         }
 
-        sprite = resolvedSprite;
+        sprite = entry.Sprite;
         return sprite != null;
     }
 
@@ -75,7 +75,6 @@ public sealed class InputGlyphDatabase : ScriptableObject
     /// </summary>
     public bool TryGetBindingGroupHints(string profileId, out string[] bindingGroupHints)
     {
-        EnsureCache();
         bindingGroupHints = null;
         if (!TryGetProfile(profileId, out Profile profile))
         {
@@ -88,19 +87,17 @@ public sealed class InputGlyphDatabase : ScriptableObject
 
     private bool TryGetProfile(string profileId, out Profile profile)
     {
-        EnsureCache();
+        BuildCacheIfNeeded();
         profile = null;
         return !string.IsNullOrWhiteSpace(profileId)
-               && _profilesById != null
-               && _profilesById.TryGetValue(profileId, out profile)
-               && profile != null;
+               && _profilesById.TryGetValue(profileId, out profile);
     }
 
     private bool TryGetEntry(string profileId, string glyphKey, out Entry entry)
     {
-        EnsureCache();
+        BuildCacheIfNeeded();
         entry = null;
-        if (string.IsNullOrWhiteSpace(profileId))
+        if (string.IsNullOrWhiteSpace(profileId) || string.IsNullOrWhiteSpace(glyphKey))
         {
             return false;
         }
@@ -240,23 +237,12 @@ public sealed class InputGlyphDatabase : ScriptableObject
         return false;
     }
 
-    private void EnsureCache()
+    private void BuildCacheIfNeeded()
     {
         if (!_cacheBuilt)
         {
             BuildCache();
         }
-    }
-
-    private static string ResolveTMPName(Entry entry)
-    {
-        if (!string.IsNullOrEmpty(entry.TMPSpriteName))
-        {
-            return entry.TMPSpriteName;
-        }
-
-        Sprite sprite = entry.Sprite;
-        return sprite != null ? sprite.name : null;
     }
 
     [Serializable]
@@ -295,6 +281,7 @@ public sealed class InputGlyphDatabase : ScriptableObject
                     continue;
                 }
 
+                entry.BuildCache();
                 RegisterEntry(entry);
             }
         }
@@ -353,7 +340,14 @@ public sealed class InputGlyphDatabase : ScriptableObject
 
         public string[] ControlPaths => controlPaths;
         public Sprite Sprite => sprite;
-        public string TMPSpriteName => tmpSpriteName;
+        public string ResolvedTMPName { get; private set; }
+
+        public void BuildCache()
+        {
+            ResolvedTMPName = !string.IsNullOrEmpty(tmpSpriteName)
+                ? tmpSpriteName
+                : (sprite != null ? sprite.name : null);
+        }
     }
 
     private readonly struct LookupKey : IEquatable<LookupKey>

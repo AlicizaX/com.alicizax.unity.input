@@ -34,6 +34,7 @@ public abstract class InputGlyphBehaviourBase : MonoBehaviour
     private string _runtimeCompositePartName;
     private bool _useRuntimeAction;
     private string _lastInvokedProfileId;
+    private bool _subscribed;
 
     protected string CurrentProfileId => UXInput.Glyph.CurrentProfileId;
     protected string CompositePartName => _useRuntimeAction ? _runtimeCompositePartName : compositePartName;
@@ -41,24 +42,37 @@ public abstract class InputGlyphBehaviourBase : MonoBehaviour
 #if UNITY_EDITOR
     protected virtual void OnValidate()
     {
-        AutoAssignHotkeyTrigger();
-        AutoAssignTarget();
+        AssignHotkeyTriggerIfMissing();
+        AssignTargetIfMissing();
     }
 #endif
 
     protected virtual void OnEnable()
     {
-        AutoAssignHotkeyTrigger();
-        AutoAssignTarget();
-        UXInput.Watch.OnContextChanged += HandleInputContextChanged;
+        Debug.Assert(UXInput.IsInitialized, "InputGlyphBehaviourBase requires UXInput to be initialized before OnEnable.", this);
+        if (!UXInput.IsInitialized)
+        {
+            return;
+        }
+
+        AssignHotkeyTriggerIfMissing();
+        AssignTargetIfMissing();
+        UXInput.Watch.OnInputProfileChanged += HandleInputProfileChanged;
         UXInput.Rebind.OnBindingsChanged += HandleBindingsChanged;
+        _subscribed = true;
         RefreshGlyph();
         InvokeProfileEvents(true);
     }
 
     protected virtual void OnDisable()
     {
-        UXInput.Watch.OnContextChanged -= HandleInputContextChanged;
+        if (!_subscribed)
+        {
+            return;
+        }
+
+        _subscribed = false;
+        UXInput.Watch.OnInputProfileChanged -= HandleInputProfileChanged;
         UXInput.Rebind.OnBindingsChanged -= HandleBindingsChanged;
     }
 
@@ -100,7 +114,7 @@ public abstract class InputGlyphBehaviourBase : MonoBehaviour
         }
     }
 
-    private void HandleInputContextChanged(UXInput.Watch.InputContext context)
+    private void HandleInputProfileChanged(InputWatch.InputProfile profile)
     {
         InvokeProfileEvents(false);
         RefreshGlyph();
@@ -131,11 +145,11 @@ public abstract class InputGlyphBehaviourBase : MonoBehaviour
         }
     }
 
-    protected virtual void AutoAssignTarget()
+    protected virtual void AssignTargetIfMissing()
     {
     }
 
-    private void AutoAssignHotkeyTrigger()
+    private void AssignHotkeyTriggerIfMissing()
     {
         if (actionSourceMode != ActionSourceMode.HotkeyTrigger || hotkeyTrigger != null)
         {

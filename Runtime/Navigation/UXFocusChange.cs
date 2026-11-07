@@ -14,6 +14,8 @@ namespace AlicizaX.UI.UXNavigation
 
         public static Cause Current => _programmaticCount > 0 ? Cause.Programmatic : Cause.User;
 
+        internal static void Reset() => _programmaticCount = 0;
+
         public static void Begin(Cause cause)
         {
             if (cause == Cause.Programmatic)

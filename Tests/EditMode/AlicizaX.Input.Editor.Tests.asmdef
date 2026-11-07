@@ -1,5 +1,6 @@
 {
     "name": "AlicizaX.Input.Editor.Tests",
+    "allowUnsafeCode": true,
     "references": [
         "AlicizaX.Input",
         "AlicizaX.Input.Tests",

@@ -77,23 +77,20 @@ namespace AlicizaX.UI.UXNavigation
 
         internal static void Initialize()
         {
-            if (_initialized)
-            {
-                return;
-            }
-
             _initialized = true;
             SubscribeInputWatcher();
-            FlushStateIfDirty(ShouldEnsureSelection());
+            RefreshNavigation(ShouldForceSelection());
         }
 
         internal static void Shutdown()
         {
+            _initialized = false;
             UnsubscribeInputWatcher();
             CaptureTopScopeSelection();
             for (int i = 0; i < _scopeCount; i++)
             {
                 UXNavigationScope scope = _scopes[i];
+                _scopes[i] = null;
                 if (scope == null)
                 {
                     continue;
@@ -102,19 +99,25 @@ namespace AlicizaX.UI.UXNavigation
                 scope.IsAlive = false;
                 scope.IsAvailable = false;
                 scope.WasAlive = false;
+                scope.RuntimeIndex = InvalidIndex;
+                scope.ActivationSerial = 0;
                 scope.SetNavigationSuppressed(false);
             }
 
             _topScope = null;
+            _scopeCount = 0;
+            _activationSerial = 0;
+            _gamepadRequireSelection = true;
+            _keyboardRequireSelection = false;
+            UXFocusChange.Reset();
             _dirty = true;
             _isFlushingState = false;
-            _initialized = false;
         }
 
         internal static void RequestRefresh(bool ensureSelection)
         {
             _dirty = true;
-            FlushStateIfDirty(ensureSelection);
+            RefreshNavigation(ensureSelection);
         }
 
         internal static void RegisterScope(UXNavigationScope scope)
@@ -133,7 +136,7 @@ namespace AlicizaX.UI.UXNavigation
             _scopes[index] = scope;
             scope.RuntimeIndex = index;
             _dirty = true;
-            FlushStateIfDirty(false);
+            RefreshNavigation(false);
         }
 
         internal static void UnregisterScope(UXNavigationScope scope)
@@ -176,16 +179,16 @@ namespace AlicizaX.UI.UXNavigation
             }
 
             _dirty = true;
-            FlushStateIfDirty(false);
+            RefreshNavigation(false);
         }
 
-        internal static void MarkStateDirty()
+        internal static void InvalidateNavigation()
         {
             _dirty = true;
-            FlushStateIfDirty(false);
+            RefreshNavigation(false);
         }
 
-        private static void FlushStateIfDirty(bool ensureSelection)
+        private static void RefreshNavigation(bool ensureSelection)
         {
             if (!_initialized || _isFlushingState || (!_dirty && !ensureSelection))
             {
@@ -202,9 +205,9 @@ namespace AlicizaX.UI.UXNavigation
                     _topScope = ResolveScopes(out UXNavigationScope highestOccluder);
                     ApplyScopeSuppression(highestOccluder);
 
-                    if (ensureSelection && ShouldEnsureSelection())
+                    if (ensureSelection && ShouldForceSelection())
                     {
-                        EnsureNavigationSelection();
+                        ApplyDefaultSelection();
                     }
                 } while (_dirty && _initialized);
             }
@@ -287,7 +290,7 @@ namespace AlicizaX.UI.UXNavigation
             }
         }
 
-        private static void EnsureNavigationSelection()
+        private static void ApplyDefaultSelection()
         {
             EventSystem eventSystem = EventSystem.current;
             if (eventSystem == null)
@@ -306,7 +309,7 @@ namespace AlicizaX.UI.UXNavigation
             }
 
             GameObject currentSelected = eventSystem.currentSelectedGameObject;
-            if (_topScope.IsSelectableOwnedAndValid(currentSelected))
+            if (_topScope.IsOwnedAndUsable(currentSelected))
             {
                 _topScope.RecordSelection(currentSelected);
                 return;
@@ -335,7 +338,7 @@ namespace AlicizaX.UI.UXNavigation
 
             EventSystem eventSystem = EventSystem.current;
             GameObject selectedObject = eventSystem != null ? eventSystem.currentSelectedGameObject : null;
-            if (_topScope.IsSelectableOwnedAndValid(selectedObject))
+            if (_topScope.IsOwnedAndUsable(selectedObject))
             {
                 _topScope.RecordSelection(selectedObject);
             }
@@ -349,21 +352,22 @@ namespace AlicizaX.UI.UXNavigation
             }
         }
 
-        private static void OnInputTypeChanged(UXInput.Watch.InputType _)
+        private static void OnInputTypeChanged(InputWatch.InputType _)
         {
-            FlushStateIfDirty(ShouldEnsureSelection());
+            RefreshNavigation(ShouldForceSelection());
         }
 
         private static void OnRequireSelectionPolicyChanged()
         {
-            FlushStateIfDirty(ShouldEnsureSelection());
+            RefreshNavigation(ShouldForceSelection());
         }
 
-        private static bool ShouldEnsureSelection()
+        private static bool ShouldForceSelection()
         {
-            UXInput.Watch.InputType inputType = UXInput.Watch.CurrentInputType;
-            return ((inputType == UXInput.Watch.InputType.Gamepad || inputType == UXInput.Watch.InputType.Joystick) && _gamepadRequireSelection)
-                   || (inputType == UXInput.Watch.InputType.KeyboardMouse && _keyboardRequireSelection);
+            if (!_initialized) return false;
+            InputWatch.InputType inputType = UXInput.Watch.CurrentInputType;
+            return ((inputType == InputWatch.InputType.Gamepad || inputType == InputWatch.InputType.Joystick) && _gamepadRequireSelection)
+                   || (inputType == InputWatch.InputType.KeyboardMouse && _keyboardRequireSelection);
         }
 
         private static bool IsHigherPriority(UXNavigationScope left, UXNavigationScope right)
@@ -387,7 +391,6 @@ namespace AlicizaX.UI.UXNavigation
 
         private static void SubscribeInputWatcher()
         {
-            UXInput.Watch.OnInputTypeChanged -= OnInputTypeChanged;
             UXInput.Watch.OnInputTypeChanged += OnInputTypeChanged;
         }
 

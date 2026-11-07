@@ -1,6 +1,5 @@
 #if INPUTSYSTEM_SUPPORT
 using UnityEngine;
-using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 namespace UnityEditor.UI
@@ -8,9 +7,12 @@ namespace UnityEditor.UI
     [CustomEditor(typeof(HotkeyComponentBase), true)]
     public class HotkeyComponentEditor : Editor
     {
+        private static readonly GUIContent ComponentLabel = new GUIContent("Component");
+        private static readonly GUIContent HolderLabel = new GUIContent("Holder");
+        private static readonly GUIContent InputActionLabel = new GUIContent("Input Action");
+        private static readonly GUIContent PressTypeLabel = new GUIContent("Press Type");
         private SerializedProperty _hotkeyAction;
         private SerializedProperty _hotkeyPressType;
-        private SerializedProperty _hotkeyConsumesInput;
         private SerializedProperty _component;
         private SerializedProperty _holder;
 
@@ -20,7 +22,6 @@ namespace UnityEditor.UI
             _holder = serializedObject.FindProperty("_holder");
             _hotkeyAction = serializedObject.FindProperty("_hotkeyAction");
             _hotkeyPressType = serializedObject.FindProperty("_hotkeyPressType");
-            _hotkeyConsumesInput = serializedObject.FindProperty("_hotkeyConsumesInput");
         }
 
         public override void OnInspectorGUI()
@@ -30,7 +31,7 @@ namespace UnityEditor.UI
             HotkeyComponentBase hotkeyComponent = (HotkeyComponentBase)target;
 
             EditorGUILayout.HelpBox(
-                "Hotkeys auto-register to the nearest UIHolderObjectBase at runtime. Input actions must be enabled by the input layer (e.g. InputActionProvider).",
+                "Hotkeys auto-register to the nearest UIHolderObjectBase and observe the referenced action. The action owner controls when input is enabled.",
                 MessageType.Info
             );
 
@@ -45,20 +46,6 @@ namespace UnityEditor.UI
             if (hotkeyComponent is HotkeyComponent && _component.objectReferenceValue == null)
             {
                 EditorGUILayout.HelpBox("No submit target was found on this object.", MessageType.Error);
-                Component[] components = hotkeyComponent.GetComponents<Component>();
-                for (int i = 0; i < components.Length; i++)
-                {
-                    if (components[i] is ISubmitHandler)
-                    {
-                        _component.objectReferenceValue = components[i];
-                        break;
-                    }
-                }
-            }
-            else if (_component != null && _component.objectReferenceValue != null && _component.objectReferenceValue is not ISubmitHandler)
-            {
-                EditorGUILayout.HelpBox("Submit target must implement ISubmitHandler. The invalid reference will be cleared.", MessageType.Error);
-                _component.objectReferenceValue = null;
             }
 
             if (_hotkeyAction.objectReferenceValue == null)
@@ -66,23 +53,21 @@ namespace UnityEditor.UI
                 EditorGUILayout.HelpBox("Input Action is required. This hotkey will not register at runtime.", MessageType.Error);
             }
 
-            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            EditorGUILayout.LabelField("Hotkey Setting", EditorStyles.boldLabel);
+
+            EditorGUI.BeginDisabledGroup(true);
+            if (_component != null)
             {
-                EditorGUILayout.LabelField("Hotkey Setting", EditorStyles.boldLabel);
-
-                EditorGUI.BeginDisabledGroup(true);
-                if (_component != null)
-                {
-                    EditorGUILayout.PropertyField(_component, new GUIContent("Component"));
-                }
-
-                EditorGUILayout.PropertyField(_holder, new GUIContent("Holder"));
-                EditorGUI.EndDisabledGroup();
-
-                EditorGUILayout.PropertyField(_hotkeyAction, new GUIContent("Input Action"));
-                EditorGUILayout.PropertyField(_hotkeyPressType, new GUIContent("Press Type"));
-                EditorGUILayout.PropertyField(_hotkeyConsumesInput, new GUIContent("Consumes Input"));
+                EditorGUILayout.PropertyField(_component, ComponentLabel);
             }
+
+            EditorGUILayout.PropertyField(_holder, HolderLabel);
+            EditorGUI.EndDisabledGroup();
+
+            EditorGUILayout.PropertyField(_hotkeyAction, InputActionLabel);
+            EditorGUILayout.PropertyField(_hotkeyPressType, PressTypeLabel);
+            EditorGUILayout.EndVertical();
 
             serializedObject.ApplyModifiedProperties();
         }

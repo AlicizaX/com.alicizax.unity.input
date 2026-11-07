@@ -6,6 +6,7 @@ using AlicizaX.UI.UXNavigation;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.LowLevel;
 using UnityEngine.TestTools;
 using UnityEngine.UI;
 
@@ -45,17 +46,17 @@ namespace AlicizaX.Input.Tests
             InputAction move = Action("Move");
             SetKeys(Key.Space, Key.W);
 
-            var state = new UXInput.Reader.ButtonState();
+            var state = new InputReader.ButtonState();
             void Loop()
             {
                 for (int i = 0; i < 2000; i++)
                 {
-                    UXInput.Reader.ReadPressed(jump);
-                    UXInput.Reader.ReadButton(jump);
+                    UXInput.Reader.IsPressed(jump);
+                    UXInput.Reader.IsButtonPressed(jump);
                     UXInput.Reader.ReadValue<Vector2>(move);
                     state.Once(jump);
                     state.Toggle(jump);
-                    UXInput.Reader.ReadCompositePartButton(move, "Up");
+                    UXInput.Reader.IsCompositePartPressed(move, "Up");
                 }
             }
 
@@ -99,13 +100,109 @@ namespace AlicizaX.Input.Tests
         }
 
         [UnityTest]
+        public IEnumerator WatchAlternatingDevicesAllocateZeroBytes()
+        {
+            var keyboard = AddKeyboard();
+            var mouse = Track(InputSystem.AddDevice<Mouse>());
+            var gamepad = AddGamepad();
+            void Loop()
+            {
+                for (int i = 0; i < 2000; i++)
+                {
+                    UXInput.Watch.ResolveContext(keyboard);
+                    UXInput.Watch.ResolveContext(mouse);
+                    UXInput.Watch.ResolveContext(gamepad);
+                }
+            }
+
+            Loop();
+            yield return InputAllocationCapture.Measure("watch-alternating", Loop,
+                (bytes, _) => Assert.That(bytes, Is.Zero));
+        }
+
+        [UnityTest]
+        public IEnumerator WatchSameDeviceCallbacksAllocateZeroBytes()
+        {
+            var gamepad = AddGamepad();
+            var pressed = new GamepadState().WithButton(GamepadButton.South);
+            var released = new GamepadState();
+            int activityCount = 0;
+            void OnActivity(InputWatch.InputContext _) => activityCount++;
+            void Loop()
+            {
+                for (int i = 0; i < 2000; i++)
+                {
+                    InputSystem.QueueStateEvent(gamepad, pressed);
+                    InputSystem.Update();
+                    InputSystem.QueueStateEvent(gamepad, released);
+                    InputSystem.Update();
+                }
+            }
+
+            UXInput.Watch.OnInputActivity += OnActivity;
+            try
+            {
+                Loop();
+                activityCount = 0;
+                yield return InputAllocationCapture.Measure("watch-same-device-callbacks", Loop,
+                    (bytes, _) => Assert.That(bytes, Is.Zero));
+                Assert.That(activityCount, Is.EqualTo(2000));
+            }
+            finally
+            {
+                UXInput.Watch.OnInputActivity -= OnActivity;
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator WatchInputCallbacksAllocateZeroBytes()
+        {
+            var keyboard = AddKeyboard();
+            var gamepad = AddGamepad();
+            var pressedKey = new KeyboardState(Key.A);
+            var releasedKey = new KeyboardState();
+            var pressedPad = new GamepadState().WithButton(GamepadButton.South);
+            var releasedPad = new GamepadState();
+            int activityCount = 0;
+            void OnActivity(InputWatch.InputContext _) => activityCount++;
+            void Loop()
+            {
+                for (int i = 0; i < 2000; i++)
+                {
+                    InputSystem.QueueStateEvent(keyboard, pressedKey);
+                    InputSystem.Update();
+                    InputSystem.QueueStateEvent(keyboard, releasedKey);
+                    InputSystem.Update();
+                    InputSystem.QueueStateEvent(gamepad, pressedPad);
+                    InputSystem.Update();
+                    InputSystem.QueueStateEvent(gamepad, releasedPad);
+                    InputSystem.Update();
+                }
+            }
+
+            UXInput.Watch.OnInputActivity += OnActivity;
+            try
+            {
+                Loop();
+                activityCount = 0;
+                yield return InputAllocationCapture.Measure("watch-input-callbacks", Loop,
+                    (bytes, _) => Assert.That(bytes, Is.Zero));
+                Assert.That(activityCount, Is.EqualTo(4000));
+            }
+            finally
+            {
+                UXInput.Watch.OnInputActivity -= OnActivity;
+            }
+        }
+
+        [UnityTest]
         public IEnumerator GlyphQueriesAllocateZeroBytes()
         {
             AddKeyboard();
             InputAction jump = Action("Jump");
-            UXInput.Glyph.GetDisplayNameFromControlPath("<Keyboard>/space");
+            UXInput.Glyph.GetDisplayName("<Keyboard>/space");
             UXInput.Glyph.GetGlyphKeyFromControlPath("<Keyboard>/space");
-            UXInput.Glyph.GetDisplayNameFromInputAction(jump);
+            UXInput.Glyph.GetDisplayName(jump);
 
             long bytes = 0;
             yield return InputAllocationCapture.Measure(
@@ -115,9 +212,9 @@ namespace AlicizaX.Input.Tests
                     for (int i = 0; i < 2000; i++)
                     {
                         _ = UXInput.Glyph.CurrentProfileId;
-                        _ = UXInput.Glyph.GetDisplayNameFromControlPath("<Keyboard>/space");
+                        _ = UXInput.Glyph.GetDisplayName("<Keyboard>/space");
                         _ = UXInput.Glyph.GetGlyphKeyFromControlPath("<Keyboard>/space");
-                        _ = UXInput.Glyph.GetDisplayNameFromInputAction(jump);
+                        _ = UXInput.Glyph.GetDisplayName(jump);
                         _ = UXInput.Glyph.GetBindingControlPath(jump);
                     }
                 },
@@ -131,7 +228,6 @@ namespace AlicizaX.Input.Tests
         {
             AddKeyboard();
             InputAction jump = Action("Jump");
-            UXInput.Rebind.Initialize(Asset);
             UXInput.Rebind.GetDisplayString(jump);
 
             try
@@ -154,7 +250,7 @@ namespace AlicizaX.Input.Tests
             }
             finally
             {
-                UXInput.Rebind.Shutdown(true);
+                UXInput.Shutdown();
             }
         }
 
@@ -167,7 +263,7 @@ namespace AlicizaX.Input.Tests
             long firstCompositeBytes = -1;
             yield return InputAllocationCapture.Measure(
                 "reader-first-composite",
-                () => UXInput.Reader.ReadCompositePartButton(move, "Down"),
+                () => UXInput.Reader.IsCompositePartPressed(move, "Down"),
                 (measuredBytes, _) => firstCompositeBytes = measuredBytes);
 
             TestContext.WriteLine("FIRST_USE,reader-composite," + firstCompositeBytes); UnityEngine.Debug.Log("FIRST_USE,reader-composite," + firstCompositeBytes);
@@ -181,7 +277,7 @@ namespace AlicizaX.Input.Tests
                 {
                     for (int i = 0; i < 2000; i++)
                     {
-                        UXInput.Reader.ReadCompositePartButton(move, "Down");
+                        UXInput.Reader.IsCompositePartPressed(move, "Down");
                     }
                 },
                 (measuredBytes, _) => steadyCompositeBytes = measuredBytes);
@@ -222,7 +318,7 @@ namespace AlicizaX.Input.Tests
             long firstDisplayBytes = -1;
             yield return InputAllocationCapture.Measure(
                 "glyph-first-display-name",
-                () => UXInput.Glyph.GetDisplayNameFromControlPath("<Keyboard>/enter"),
+                () => UXInput.Glyph.GetDisplayName("<Keyboard>/enter"),
                 (measuredBytes, _) => firstDisplayBytes = measuredBytes);
 
             TestContext.WriteLine("FIRST_USE,glyph-display," + firstDisplayBytes);
@@ -239,7 +335,7 @@ namespace AlicizaX.Input.Tests
                 {
                     for (int i = 0; i < 2000; i++)
                     {
-                        UXInput.Glyph.GetDisplayNameFromControlPath("<Keyboard>/enter");
+                        UXInput.Glyph.GetDisplayName("<Keyboard>/enter");
                     }
                 },
                 (measuredBytes, _) => steadyDisplayBytes = measuredBytes);
@@ -273,8 +369,6 @@ namespace AlicizaX.Input.Tests
         [UnityTest]
         public IEnumerator NavigationRefreshAllocatesZeroBytes()
         {
-            UXNavigationSystem.Shutdown();
-            UXNavigationSystem.Initialize();
 
             var root = new GameObject("alloc-navigation-scope", typeof(RectTransform), typeof(Canvas));
             try
@@ -310,7 +404,7 @@ namespace AlicizaX.Input.Tests
                     UnityEngine.Object.DestroyImmediate(root);
                 }
 
-                UXNavigationSystem.Shutdown();
+                UXInput.Shutdown();
             }
         }
     }

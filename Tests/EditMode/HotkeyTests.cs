@@ -6,6 +6,7 @@ using System.Reflection;
 using AlicizaX.UI.Runtime;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
 using Object = UnityEngine.Object;
@@ -23,7 +24,7 @@ namespace AlicizaX.Input.Tests
         {
             public int TriggerCount;
 
-            public override void HotkeyActionTrigger()
+            public override void TriggerHotkey()
             {
                 TriggerCount++;
             }
@@ -46,11 +47,7 @@ namespace AlicizaX.Input.Tests
             InputAction back = map.AddAction("Back", InputActionType.Button, "<Keyboard>/escape");
             _asset.Enable();
             _reference = InputActionReference.Create(back);
-
-            // 通过真实 Provider 初始化，覆盖热键注册对运行时资产身份/路径解析的依赖。
-            typeof(InputActionProvider)
-                .GetMethod("Initialize", BindingFlags.Static | BindingFlags.NonPublic)
-                .Invoke(null, new object[] { null, _asset, null });
+            UXHotkeySystem.Initialize(_asset);
 
             var holderObject = Track(new GameObject("hotkey-holder"));
             holderObject.layer = UIComponent.UIShowLayer;
@@ -65,10 +62,6 @@ namespace AlicizaX.Input.Tests
         {
             UXHotkeySystem.Shutdown();
 
-            typeof(InputActionProvider)
-                .GetMethod("Shutdown", BindingFlags.Static | BindingFlags.NonPublic)
-                .Invoke(null, new object[] { null });
-            UXInput.Watch.Shutdown(true);
 
             for (int i = 0; i < _objects.Count; i++)
             {
@@ -99,10 +92,11 @@ namespace AlicizaX.Input.Tests
             UXHotkeySystem.RegisterHotkey(_trigger, _holder, _reference, EHotkeyPressType.Performed);
 
             Assert.That(_trigger.IsRegistered, Is.True);
+            Assert.That(_trigger.RegisteredAction, Is.SameAs(_reference.action));
             Assert.That(RegistryCount("Scopes"), Is.EqualTo(1));
             Assert.That(RegistryCount("Actions"), Is.EqualTo(1));
             Assert.That(RegistryCount("ScopeList"), Is.EqualTo(1));
-            Assert.That(GetAppHook(), Is.Not.Null);
+            Assert.That(GetFocusResetHook(), Is.Not.Null);
         }
 
         [Test]
@@ -146,10 +140,10 @@ namespace AlicizaX.Input.Tests
         }
 
         [Test]
-        public void ShutdownClearsAllRegistriesAndAppHook()
+        public void ShutdownClearsRegistriesAndFocusResetHook()
         {
             UXHotkeySystem.RegisterHotkey(_trigger, _holder, _reference, EHotkeyPressType.Performed);
-            Assert.That(GetAppHook(), Is.Not.Null);
+            Assert.That(GetFocusResetHook(), Is.Not.Null);
 
             UXHotkeySystem.Shutdown();
 
@@ -157,7 +151,25 @@ namespace AlicizaX.Input.Tests
             Assert.That(RegistryCount("Scopes"), Is.Zero);
             Assert.That(RegistryCount("Actions"), Is.Zero);
             Assert.That(RegistryCount("ScopeList"), Is.Zero);
-            Assert.That(GetAppHook(), Is.Null);
+            Assert.That(GetFocusResetHook(), Is.Null);
+            Assert.That(_reference.action.enabled, Is.True, "hotkey cleanup does not own action lifetime");
+        }
+
+        [Test]
+        public void MissingActionDoesNotCreateRegistration()
+        {
+            var emptyReference = ScriptableObject.CreateInstance<InputActionReference>();
+            try
+            {
+                UXHotkeySystem.RegisterHotkey(_trigger, _holder, emptyReference, EHotkeyPressType.Performed);
+                Assert.That(_trigger.IsRegistered, Is.False);
+                Assert.That(RegistryCount("Actions"), Is.Zero);
+                Assert.That(RegistryCount("Scopes"), Is.Zero);
+            }
+            finally
+            {
+                Object.DestroyImmediate(emptyReference);
+            }
         }
 
         [Test]
@@ -187,14 +199,14 @@ namespace AlicizaX.Input.Tests
                 "_submitHandler",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.That(handlerField, Is.Not.Null);
-            Assert.That(handlerField.GetValue(component), Is.Not.Null);
+            Assert.That(handlerField.GetValue(component), Is.TypeOf<Button>());
         }
 
         [Test]
-        public void AppHookIsReusedAcrossRegistrations()
+        public void FocusResetHookIsReusedAcrossRegistrations()
         {
             UXHotkeySystem.RegisterHotkey(_trigger, _holder, _reference, EHotkeyPressType.Performed);
-            object firstHook = GetAppHook();
+            object firstHook = GetFocusResetHook();
 
             var secondHolderObject = Track(new GameObject("hotkey-holder-2"));
             secondHolderObject.layer = UIComponent.UIShowLayer;
@@ -204,7 +216,7 @@ namespace AlicizaX.Input.Tests
 
             UXHotkeySystem.RegisterHotkey(secondTrigger, secondHolder, _reference, EHotkeyPressType.Performed);
 
-            Assert.That(GetAppHook(), Is.SameAs(firstHook));
+            Assert.That(GetFocusResetHook(), Is.SameAs(firstHook));
             Assert.That(RegistryCount("Scopes"), Is.EqualTo(2));
         }
 
@@ -275,7 +287,7 @@ namespace AlicizaX.Input.Tests
             SetField(state, "FocusHolder", _holder);
             SetField(state, "LeafScope", scope);
 
-            UXHotkeySystem.ResetTransientState();
+            UXHotkeySystem.ResetPressTargets();
 
             Assert.That((bool)GetField(state, "HasPressTarget"), Is.False);
             Assert.That(GetField(state, "FocusHolder"), Is.Null);
@@ -288,30 +300,13 @@ namespace AlicizaX.Input.Tests
             var parent = CreateHolder("dispatch-parent");
             var child = CreateHolder("dispatch-child", parent.transform);
 
-            CountingTrigger parentTrigger = CreateCountingTrigger(parent, EHotkeyPressType.Performed, true);
-            CountingTrigger childTrigger = CreateCountingTrigger(child, EHotkeyPressType.Performed, true);
+            CountingTrigger parentTrigger = CreateCountingTrigger(parent, EHotkeyPressType.Performed);
+            CountingTrigger childTrigger = CreateCountingTrigger(child, EHotkeyPressType.Performed);
 
             Dispatch(GetScope(child), child, EHotkeyPressType.Performed);
 
             Assert.That(childTrigger.TriggerCount, Is.EqualTo(1));
             Assert.That(parentTrigger.TriggerCount, Is.Zero, "the nearest registration must consume the input");
-        }
-
-        [Test]
-        public void NonConsumingRegistrationFallsThroughToParentScope()
-        {
-            var grandparent = CreateHolder("dispatch-grandparent");
-            var parent = CreateHolder("dispatch-parent-2", grandparent.transform);
-            var child = CreateHolder("dispatch-child-2", parent.transform);
-
-            CountingTrigger grandparentTrigger = CreateCountingTrigger(grandparent, EHotkeyPressType.Performed, true);
-            CountingTrigger parentTrigger = CreateCountingTrigger(parent, EHotkeyPressType.Performed, false);
-            CreateCountingTrigger(child, EHotkeyPressType.Started, true);
-
-            Dispatch(GetScope(child), grandparent, EHotkeyPressType.Performed);
-
-            Assert.That(parentTrigger.TriggerCount, Is.EqualTo(1), "a non-consuming registration continues up the chain");
-            Assert.That(grandparentTrigger.TriggerCount, Is.EqualTo(1));
         }
 
         private TestHolder CreateHolder(string name, Transform parent = null)
@@ -328,13 +323,11 @@ namespace AlicizaX.Input.Tests
 
         private CountingTrigger CreateCountingTrigger(
             UIHolderObjectBase holder,
-            EHotkeyPressType pressType,
-            bool consumesInput)
+            EHotkeyPressType pressType)
         {
-            var gameObject = Track(new GameObject("counting-trigger-" + pressType + "-" + consumesInput));
+            var gameObject = Track(new GameObject("counting-trigger-" + pressType));
             gameObject.SetActive(false);
             var trigger = gameObject.AddComponent<CountingTrigger>();
-            SetField(trigger, "_hotkeyConsumesInput", consumesInput);
             gameObject.SetActive(true);
             UXHotkeySystem.RegisterHotkey(trigger, holder, _reference, pressType);
             return trigger;
@@ -421,9 +414,9 @@ namespace AlicizaX.Input.Tests
             return field.GetValue(null) is ICollection collection ? collection.Count : -1;
         }
 
-        private static object GetAppHook()
+        private static object GetFocusResetHook()
         {
-            FieldInfo field = typeof(UXHotkeySystem).GetField("_appHookRunner", BindingFlags.Static | BindingFlags.NonPublic);
+            FieldInfo field = typeof(UXHotkeySystem).GetField("_focusResetHook", BindingFlags.Static | BindingFlags.NonPublic);
             Assert.That(field, Is.Not.Null);
             return field.GetValue(null);
         }

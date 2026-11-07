@@ -10,11 +10,25 @@ namespace AlicizaX.Input.Tests
     public sealed class ReaderTests : InputDeviceTestBase
     {
         [Test]
+        public void DisabledCompositePartDoesNotReadAnotherPartsControl()
+        {
+            AddKeyboard();
+            InputAction move = Action("Move");
+            move.ApplyBindingOverride(1, string.Empty);
+            move.ApplyBindingOverride(2, "<Keyboard>/w");
+            SetKeys(Key.W);
+
+            Assert.That(UXInput.Reader.IsCompositePartPressed(move, "Down"), Is.True);
+            Assert.That(UXInput.Reader.IsCompositePartPressed(move, "Up"), Is.False);
+            Assert.That(UXInput.Glyph.GetBindingControlPath(move, "Up"), Is.Empty);
+        }
+
+        [Test]
         public void ButtonStateOnceTriggersOnPressEdgeOnly()
         {
             AddKeyboard();
             InputAction jump = Action("Jump");
-            var state = new UXInput.Reader.ButtonState();
+            var state = new InputReader.ButtonState();
 
             Assert.That(state.Once(jump), Is.False, "idle state must not report a press");
 
@@ -34,7 +48,7 @@ namespace AlicizaX.Input.Tests
         {
             AddKeyboard();
             InputAction jump = Action("Jump");
-            var state = new UXInput.Reader.ButtonState();
+            var state = new InputReader.ButtonState();
 
             Assert.That(state.Toggle(jump), Is.False);
 
@@ -58,8 +72,8 @@ namespace AlicizaX.Input.Tests
         {
             AddKeyboard();
             InputAction jump = Action("Jump");
-            var first = new UXInput.Reader.ButtonState();
-            var second = new UXInput.Reader.ButtonState();
+            var first = new InputReader.ButtonState();
+            var second = new InputReader.ButtonState();
 
             SetKeys(Key.Space);
             Assert.That(first.Once(jump), Is.True);
@@ -78,12 +92,12 @@ namespace AlicizaX.Input.Tests
             Assert.That(UXInput.Reader.ReadValue<Vector2>(moveValue), Is.EqualTo(Vector2.up));
             Assert.That(UXInput.Reader.TryReadValue<Vector2>(move, out Vector2 value), Is.True);
             Assert.That(value, Is.EqualTo(Vector2.up));
-            Assert.That(UXInput.Reader.ReadPressed(move), Is.True);
-            Assert.That(UXInput.Reader.ReadButton(jump), Is.False);
+            Assert.That(UXInput.Reader.IsPressed(move), Is.True);
+            Assert.That(UXInput.Reader.IsButtonPressed(jump), Is.False);
 
             SetKeys(Key.Space);
-            Assert.That(UXInput.Reader.ReadButton(jump), Is.True);
-            Assert.That(UXInput.Reader.ReadPressed(jump), Is.True);
+            Assert.That(UXInput.Reader.IsButtonPressed(jump), Is.True);
+            Assert.That(UXInput.Reader.IsPressed(jump), Is.True);
         }
 
         [Test]
@@ -93,14 +107,14 @@ namespace AlicizaX.Input.Tests
             InputAction move = Action("Move");
 
             SetKeys(Key.W);
-            Assert.That(UXInput.Reader.ReadCompositePartButton(move, "Up"), Is.True);
-            Assert.That(UXInput.Reader.ReadCompositePartButton(move, "Down"), Is.False);
+            Assert.That(UXInput.Reader.IsCompositePartPressed(move, "Up"), Is.True);
+            Assert.That(UXInput.Reader.IsCompositePartPressed(move, "Down"), Is.False);
 
             SetKeys(Key.S);
-            Assert.That(UXInput.Reader.ReadCompositePartButton(move, "Down"), Is.True);
+            Assert.That(UXInput.Reader.IsCompositePartPressed(move, "Down"), Is.True);
 
             SetKeys();
-            Assert.That(UXInput.Reader.ReadCompositePartButton(move, "Down"), Is.False);
+            Assert.That(UXInput.Reader.IsCompositePartPressed(move, "Down"), Is.False);
         }
 
         [Test]
@@ -111,7 +125,7 @@ namespace AlicizaX.Input.Tests
             SetKeys(Key.W);
             move.Disable();
 
-            Assert.That(UXInput.Reader.ReadCompositePartButton(move, "Up"), Is.False);
+            Assert.That(UXInput.Reader.IsCompositePartPressed(move, "Up"), Is.False);
             move.Enable();
         }
 
@@ -120,11 +134,11 @@ namespace AlicizaX.Input.Tests
         {
             AddKeyboard();
             InputAction jump = Action("Jump");
-            var state = new UXInput.Reader.ButtonState();
+            var state = new InputReader.ButtonState();
             int onceCount = 0;
-            UXInput.Reader.ReadTraceKind lastKind = default;
+            InputReader.ReadTraceKind lastKind = default;
 
-            void Handler(UXInput.Reader.ReadTrace trace)
+            void Handler(InputReader.ReadTrace trace)
             {
                 onceCount++;
                 lastKind = trace.Kind;
@@ -136,7 +150,7 @@ namespace AlicizaX.Input.Tests
                 SetKeys(Key.Space);
                 Assert.That(state.Once(jump), Is.True);
                 Assert.That(onceCount, Is.EqualTo(1));
-                Assert.That(lastKind, Is.EqualTo(UXInput.Reader.ReadTraceKind.Once));
+                Assert.That(lastKind, Is.EqualTo(InputReader.ReadTraceKind.Once));
             }
             finally
             {
@@ -147,7 +161,6 @@ namespace AlicizaX.Input.Tests
         [Test]
         public void ResolveActionReturnsNullForUnknownPath()
         {
-            InitializeProvider();
             try
             {
                 Assert.That(UXInput.Reader.ResolveAction("Gameplay/Missing"), Is.Null);
@@ -155,7 +168,7 @@ namespace AlicizaX.Input.Tests
             }
             finally
             {
-                ShutdownProvider();
+                UXInput.Shutdown();
             }
         }
 
@@ -164,8 +177,8 @@ namespace AlicizaX.Input.Tests
         {
             AddKeyboard();
             InputAction move = Action("Move");
-            var onceState = new UXInput.Reader.ButtonState();
-            var toggleState = new UXInput.Reader.ButtonState();
+            var onceState = new InputReader.ButtonState();
+            var toggleState = new InputReader.ButtonState();
 
             SetKeys(Key.W);
             Assert.That(onceState.Once(move, "Up"), Is.True);
@@ -189,8 +202,8 @@ namespace AlicizaX.Input.Tests
             InputAction move = Action("Move");
             SetKeys(Key.W);
 
-            Assert.That(UXInput.Reader.ReadCompositePartButton(move, "up"), Is.True);
-            Assert.That(UXInput.Reader.ReadCompositePartButton(move, "UP"), Is.True);
+            Assert.That(UXInput.Reader.IsCompositePartPressed(move, "up"), Is.True);
+            Assert.That(UXInput.Reader.IsCompositePartPressed(move, "UP"), Is.True);
         }
 
         [Test]
@@ -204,7 +217,7 @@ namespace AlicizaX.Input.Tests
             InputSystem.Update();
 
             Assert.That(
-                UXInput.Reader.ReadCompositePartButton(move, "Up"),
+                UXInput.Reader.IsCompositePartPressed(move, "Up"),
                 Is.True,
                 "a matching control on any device must trigger the composite part");
         }
@@ -214,22 +227,22 @@ namespace AlicizaX.Input.Tests
         {
             Assert.That(UXInput.Reader.ReadValue<Vector2>(null as InputAction), Is.EqualTo(Vector2.zero));
             Assert.That(UXInput.Reader.TryReadValue<Vector2>(null as InputAction, out _), Is.False);
-            Assert.That(UXInput.Reader.ReadButton(null as InputAction), Is.False);
-            Assert.That(UXInput.Reader.ReadPressed(null as InputAction), Is.False);
-            Assert.That(UXInput.Reader.ReadCompositePartButton(null as InputAction, "Up"), Is.False);
+            Assert.That(UXInput.Reader.IsButtonPressed(null as InputAction), Is.False);
+            Assert.That(UXInput.Reader.IsPressed(null as InputAction), Is.False);
+            Assert.That(UXInput.Reader.IsCompositePartPressed(null as InputAction, "Up"), Is.False);
             Assert.That(UXInput.Reader.ResolveAction(null), Is.Null);
             Assert.That(UXInput.Reader.ResolveAction(" "), Is.Null);
         }
 
         [Test]
-        public void ReadButtonRejectsValueActions()
+        public void IsButtonPressedRejectsValueActions()
         {
             AddKeyboard();
             InputAction move = Action("Move");
             SetKeys(Key.W);
 
-            Assert.That(UXInput.Reader.ReadPressed(move), Is.True);
-            Assert.That(UXInput.Reader.ReadButton(move), Is.False, "ReadButton only accepts InputActionType.Button");
+            Assert.That(UXInput.Reader.IsPressed(move), Is.True);
+            Assert.That(UXInput.Reader.IsButtonPressed(move), Is.False, "IsButtonPressed only accepts InputActionType.Button");
         }
 
         [Test]
@@ -239,7 +252,7 @@ namespace AlicizaX.Input.Tests
             InputAction jump = Action("Jump");
             int continuousCount = 0;
 
-            void Handler(UXInput.Reader.ReadTrace trace)
+            void Handler(InputReader.ReadTrace trace)
             {
                 continuousCount++;
             }
@@ -248,7 +261,7 @@ namespace AlicizaX.Input.Tests
             try
             {
                 SetKeys(Key.Space);
-                Assert.That(UXInput.Reader.ReadPressed(jump), Is.True);
+                Assert.That(UXInput.Reader.IsPressed(jump), Is.True);
                 Assert.That(continuousCount, Is.GreaterThan(0));
             }
             finally

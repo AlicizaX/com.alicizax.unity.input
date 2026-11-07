@@ -94,12 +94,12 @@ namespace AlicizaX.Input.Tests
             UXInput.Glyph.SetDatabase(_database);
 
             Assert.That(
-                UXInput.Glyph.TryGetTMPTagForControlPath("<Keyboard>/space", out string tag, out string fallback),
+                UXInput.Glyph.TryGetTag("<Keyboard>/space", out string tag, out string fallback),
                 Is.False);
             Assert.That(tag, Is.Null);
             Assert.That(fallback, Is.EqualTo("Space"));
 
-            Assert.That(UXInput.Glyph.TryGetUISpriteForControlPath("<Keyboard>/space", out Sprite sprite), Is.True);
+            Assert.That(UXInput.Glyph.TryGetSprite("<Keyboard>/space", out Sprite sprite), Is.True);
             Assert.That(sprite, Is.SameAs(placeholder), "sprite queries may use the placeholder");
         }
 
@@ -122,7 +122,7 @@ namespace AlicizaX.Input.Tests
             UXInput.Glyph.SetDatabase(_database);
 
             Assert.That(
-                UXInput.Glyph.TryGetTMPTagForControlPath("<Gamepad>/buttonSouth", out string tag, out _),
+                UXInput.Glyph.TryGetTag("<Gamepad>/buttonSouth", out string tag, out _),
                 Is.True);
             Assert.That(tag, Is.EqualTo("<sprite name=\"SouthButton\">"));
         }
@@ -148,8 +148,8 @@ namespace AlicizaX.Input.Tests
             string secondProfileId = UXInput.Glyph.CurrentProfileId;
             Assert.That(secondProfileId, Is.SameAs(firstProfileId), "profile id is a cached string");
 
-            string firstDisplay = UXInput.Glyph.GetDisplayNameFromControlPath("<Keyboard>/space");
-            string secondDisplay = UXInput.Glyph.GetDisplayNameFromControlPath("<Keyboard>/space");
+            string firstDisplay = UXInput.Glyph.GetDisplayName("<Keyboard>/space");
+            string secondDisplay = UXInput.Glyph.GetDisplayName("<Keyboard>/space");
             Assert.That(secondDisplay, Is.SameAs(firstDisplay), "display names are cached");
 
             string firstKey = UXInput.Glyph.GetGlyphKeyFromControlPath("<Keyboard>/space");
@@ -163,8 +163,8 @@ namespace AlicizaX.Input.Tests
             AddKeyboard();
             InputAction jump = Action("Jump");
 
-            string first = UXInput.Glyph.GetDisplayNameFromInputAction(jump);
-            string second = UXInput.Glyph.GetDisplayNameFromInputAction(jump);
+            string first = UXInput.Glyph.GetDisplayName(jump);
+            string second = UXInput.Glyph.GetDisplayName(jump);
             Assert.That(first, Is.Not.Empty);
             Assert.That(second, Is.EqualTo(first));
         }
@@ -242,7 +242,7 @@ namespace AlicizaX.Input.Tests
             UXInput.Glyph.SetDatabase(_database);
 
             Assert.That(
-                UXInput.Glyph.TryGetUISpriteForControlPath("<Keyboard>/space", out Sprite sprite),
+                UXInput.Glyph.TryGetSprite("<Keyboard>/space", out Sprite sprite),
                 Is.False);
             Assert.That(sprite, Is.Null);
             Assert.That(_database.Placeholder, Is.Null);
@@ -252,14 +252,14 @@ namespace AlicizaX.Input.Tests
         public void NullAndEmptyGlyphQueriesAreSafe()
         {
             Assert.That(UXInput.Glyph.GetBindingControlPath(null), Is.Empty);
-            Assert.That(UXInput.Glyph.GetDisplayNameFromInputAction(null), Is.Empty);
+            Assert.That(UXInput.Glyph.GetDisplayName((InputAction)null), Is.Empty);
             Assert.That(UXInput.Glyph.GetGlyphKeyFromControlPath(null), Is.Empty);
             Assert.That(
-                UXInput.Glyph.TryGetUISpriteForControlPath(null, out Sprite sprite),
+                UXInput.Glyph.TryGetSprite((string)null, out Sprite sprite),
                 Is.False);
             Assert.That(sprite, Is.Null);
             Assert.That(
-                UXInput.Glyph.TryGetTMPTagForActionPath(null, null, out string tag, out string fallback),
+                UXInput.Glyph.TryGetTag((InputAction)null, null, out string tag, out string fallback),
                 Is.False);
             Assert.That(tag, Is.Null);
             Assert.That(fallback, Is.Empty);
@@ -288,10 +288,10 @@ namespace AlicizaX.Input.Tests
             try
             {
                 Assert.That(
-                    UXInput.Glyph.TryGetUISpriteForActionPath(reference, null, out Sprite fromReference),
+                    UXInput.Glyph.TryGetSprite(reference, null, out Sprite fromReference),
                     Is.True);
                 Assert.That(
-                    UXInput.Glyph.TryGetUISpriteForActionPath(jump, null, out Sprite fromAction),
+                    UXInput.Glyph.TryGetSprite(jump, null, out Sprite fromAction),
                     Is.True);
                 Assert.That(fromReference, Is.SameAs(fromAction));
                 Assert.That(UXInput.Glyph.GetBindingControlPath(reference), Is.EqualTo("<Keyboard>/space"));

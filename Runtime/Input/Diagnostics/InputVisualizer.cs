@@ -1,5 +1,6 @@
 #if INPUTSYSTEM_SUPPORT && (UNITY_EDITOR || DEVELOPMENT_BUILD)
 using System;
+using System.Text;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -12,6 +13,9 @@ public sealed class InputVisualizer : MonoBehaviour
     private const int DefaultHistoryCapacity = 16;
     private const string NoDeviceName = "No Device";
     private const string WatchActionName = "UXInput.Watch.AnyInput";
+    private static readonly string[] ReadKindNames = Enum.GetNames(typeof(InputReader.ReadTraceKind));
+    private static readonly string[] InputTypeNames = Enum.GetNames(typeof(InputWatch.InputType));
+    private static readonly string[] InputProfileNames = Enum.GetNames(typeof(InputWatch.InputProfile));
 
     [Header("Sources")]
     [SerializeField] private bool logInputActions = true;
@@ -43,8 +47,8 @@ public sealed class InputVisualizer : MonoBehaviour
     [SerializeField] private Color activeColor = new Color(0.4f, 1f, 0.45f, 1f);
     [SerializeField] private Color contextColor = new Color(0.45f, 0.8f, 1f, 1f);
 
-    private readonly HistoryEntry[] _history = new HistoryEntry[DefaultHistoryCapacity];
-    private HistoryEntry[] _entries;
+    private readonly StringBuilder _textBuilder = new StringBuilder(128);
+    private HistoryEntry[] _entries = new HistoryEntry[DefaultHistoryCapacity];
     private int _entryCount;
     private GUIStyle _backgroundStyle;
     private GUIStyle _labelStyle;
@@ -52,8 +56,9 @@ public sealed class InputVisualizer : MonoBehaviour
     private GUIStyle _contextStyle;
     private Texture2D _backgroundTexture;
     private bool _stylesInitialized;
+    private bool _subscribed;
     private bool _hasLastActivityLog;
-    private UXInput.Watch.InputProfile _lastActivityProfile;
+    private InputWatch.InputProfile _lastActivityProfile;
     private string _lastActivityDeviceName;
     private float _lastActivityLogTime;
 
@@ -73,8 +78,7 @@ public sealed class InputVisualizer : MonoBehaviour
 
     private void Awake()
     {
-        _entries = _history;
-        EnsureHistoryCapacity();
+        ResizeHistory();
     }
 
 #if UNITY_EDITOR
@@ -93,6 +97,12 @@ public sealed class InputVisualizer : MonoBehaviour
 
     private void OnEnable()
     {
+        Debug.Assert(UXInput.IsInitialized, "InputVisualizer requires UXInput to be initialized before OnEnable.", this);
+        if (!UXInput.IsInitialized)
+        {
+            return;
+        }
+
         if (logInputActions)
         {
             InputSystem.onActionChange += HandleActionChange;
@@ -117,10 +127,18 @@ public sealed class InputVisualizer : MonoBehaviour
         {
             UXInput.Reader.OnContinuousRead += HandleReaderRead;
         }
+
+        _subscribed = true;
     }
 
     private void OnDisable()
     {
+        if (!_subscribed)
+        {
+            return;
+        }
+
+        _subscribed = false;
         InputSystem.onActionChange -= HandleActionChange;
         UXInput.Watch.OnInputActivity -= HandleInputActivity;
         UXInput.Watch.OnContextChanged -= HandleContextChanged;
@@ -158,6 +176,7 @@ public sealed class InputVisualizer : MonoBehaviour
         float currentTime = Time.unscaledTime;
         for (int i = 0; i < _entryCount; i++)
         {
+            string text = GetEntryText(i);
             HistoryEntry entry = _entries[i];
             Rect entryRect = new Rect(screenPosition.x + 6f, y, panelWidth - 12f, entryHeight);
             float alpha = Mathf.Clamp01(1f - ((currentTime - entry.Timestamp) / Mathf.Max(0.01f, entryLifetime)));
@@ -166,7 +185,7 @@ public sealed class InputVisualizer : MonoBehaviour
 
             Color originalColor = GUI.color;
             GUI.color = new Color(1f, 1f, 1f, alpha);
-            GUI.Label(entryRect, entry.Text, style);
+            GUI.Label(entryRect, text, style);
             GUI.color = originalColor;
 
             y += entryHeight;
@@ -238,8 +257,6 @@ public sealed class InputVisualizer : MonoBehaviour
             return;
         }
 
-        string mapName = action.actionMap != null ? action.actionMap.name : string.Empty;
-        string actionName = string.IsNullOrEmpty(mapName) ? action.name : string.Concat(mapName, "/", action.name);
         string deviceName = action.activeControl != null && action.activeControl.device != null
             ? action.activeControl.device.displayName
             : NoDeviceName;
@@ -249,62 +266,67 @@ public sealed class InputVisualizer : MonoBehaviour
             deviceName = action.activeControl.device.name;
         }
 
-        AddEntry(string.Concat(actionName, " [", deviceName, "]"), EntryKind.Active);
+        AddEntry(new HistoryEntry
+        {
+            Source = EntrySource.Action,
+            Action = action,
+            DeviceName = deviceName,
+            Kind = EntryKind.Active
+        });
     }
 
-    private void HandleInputActivity(UXInput.Watch.InputContext context)
+    private void HandleInputActivity(InputWatch.InputContext context)
     {
         if (!ShouldLogInputActivity(context))
         {
             return;
         }
 
-        AddEntry(string.Concat("Activity: ", context.InputProfile, " / ", context.DeviceName), EntryKind.Normal);
+        AddEntry(new HistoryEntry
+        {
+            Source = EntrySource.Activity,
+            InputProfile = context.InputProfile,
+            DeviceName = context.DeviceName,
+            Kind = EntryKind.Normal
+        });
     }
 
-    private void HandleContextChanged(UXInput.Watch.InputContext context)
+    private void HandleContextChanged(InputWatch.InputContext context)
     {
-        AddEntry(string.Concat("Context: ", context.InputType, " / ", context.InputProfile), EntryKind.Context);
+        AddEntry(new HistoryEntry
+        {
+            Source = EntrySource.Context,
+            InputType = context.InputType,
+            InputProfile = context.InputProfile,
+            Kind = EntryKind.Context
+        });
     }
 
-    private void HandleReaderRead(UXInput.Reader.ReadTrace trace)
+    private void HandleReaderRead(InputReader.ReadTrace trace)
     {
-        string actionName = GetReaderActionName(trace);
-        if (string.IsNullOrEmpty(actionName))
+        if (trace.Action == null)
         {
             return;
         }
 
-        string partText = string.IsNullOrEmpty(trace.CompositePartName)
-            ? string.Empty
-            : string.Concat("/", trace.CompositePartName);
-        string valueText = IsToggleTrace(trace.Kind) ? string.Concat(" = ", trace.BoolValue) : string.Empty;
-
-        AddEntry(
-            string.Concat("Reader: ", trace.Kind, " ", actionName, partText, valueText),
-            EntryKind.Active);
-    }
-
-    private static string GetReaderActionName(UXInput.Reader.ReadTrace trace)
-    {
-        if (trace.Action != null)
+        AddEntry(new HistoryEntry
         {
-            string mapName = trace.Action.actionMap != null ? trace.Action.actionMap.name : string.Empty;
-            return string.IsNullOrEmpty(mapName)
-                ? trace.Action.name
-                : string.Concat(mapName, "/", trace.Action.name);
-        }
-
-        return null;
+            Source = EntrySource.Reader,
+            Action = trace.Action,
+            ReadKind = trace.Kind,
+            CompositePartName = trace.CompositePartName,
+            BoolValue = IsToggleTrace(trace.Kind) && trace.BoolValue,
+            Kind = EntryKind.Active
+        });
     }
 
-    private static bool IsToggleTrace(UXInput.Reader.ReadTraceKind kind)
+    private static bool IsToggleTrace(InputReader.ReadTraceKind kind)
     {
-        return kind == UXInput.Reader.ReadTraceKind.Toggle
-               || kind == UXInput.Reader.ReadTraceKind.CompositePartToggle;
+        return kind == InputReader.ReadTraceKind.Toggle
+               || kind == InputReader.ReadTraceKind.CompositePartToggle;
     }
 
-    private bool ShouldLogInputActivity(UXInput.Watch.InputContext context)
+    private bool ShouldLogInputActivity(InputWatch.InputContext context)
     {
         float currentTime = Time.unscaledTime;
         if (!_hasLastActivityLog
@@ -363,9 +385,13 @@ public sealed class InputVisualizer : MonoBehaviour
             return;
         }
 
-        EnsureHistoryCapacity();
+        AddEntry(new HistoryEntry { Message = text, Kind = kind });
+    }
 
-        if (TryMergeDuplicateEntry(text, kind))
+    private void AddEntry(HistoryEntry entry)
+    {
+        ResizeHistory();
+        if (TryMergeDuplicateEntry(entry))
         {
             return;
         }
@@ -375,21 +401,12 @@ public sealed class InputVisualizer : MonoBehaviour
             RemoveAt(0);
         }
 
-        string displayText = showTimestamps
-            ? string.Concat("[", Time.unscaledTime.ToString("0.00"), "] ", text)
-            : text;
-
-        _entries[_entryCount] = new HistoryEntry
-        {
-            Text = displayText,
-            Key = text,
-            Timestamp = Time.unscaledTime,
-            Kind = kind
-        };
+        entry.Timestamp = Time.unscaledTime;
+        _entries[_entryCount] = entry;
         _entryCount++;
     }
 
-    private bool TryMergeDuplicateEntry(string text, EntryKind kind)
+    private bool TryMergeDuplicateEntry(in HistoryEntry candidate)
     {
         if (!mergeDuplicateEntries || duplicateMergeWindow <= 0f)
         {
@@ -405,28 +422,76 @@ public sealed class InputVisualizer : MonoBehaviour
                 break;
             }
 
-            if (entry.Kind != kind || !string.Equals(entry.Key, text, StringComparison.Ordinal))
+            if (entry.Source != candidate.Source || entry.Kind != candidate.Kind
+                || entry.Action != candidate.Action || entry.ReadKind != candidate.ReadKind
+                || entry.BoolValue != candidate.BoolValue || entry.InputType != candidate.InputType
+                || entry.InputProfile != candidate.InputProfile
+                || !string.Equals(entry.Message, candidate.Message, StringComparison.Ordinal)
+                || !string.Equals(entry.DeviceName, candidate.DeviceName, StringComparison.Ordinal)
+                || !string.Equals(entry.CompositePartName, candidate.CompositePartName, StringComparison.Ordinal))
             {
                 continue;
             }
 
+            if (showTimestamps && entry.Timestamp != currentTime) _entries[i].Text = null;
             _entries[i].Timestamp = currentTime;
-            _entries[i].Text = showTimestamps
-                ? string.Concat("[", currentTime.ToString("0.00"), "] ", text)
-                : text;
             return true;
         }
 
         return false;
     }
 
+    private string GetEntryText(int index)
+    {
+        ref HistoryEntry entry = ref _entries[index];
+        if (entry.Text != null) return entry.Text;
+        if (entry.Source == EntrySource.Message && !showTimestamps) return entry.Text = entry.Message;
+
+        _textBuilder.Clear();
+        if (showTimestamps)
+        {
+            Span<char> timestamp = stackalloc char[48];
+            entry.Timestamp.TryFormat(timestamp, out int length, "0.00");
+            _textBuilder.Append('[').Append(timestamp.Slice(0, length)).Append("] ");
+        }
+        switch (entry.Source)
+        {
+            case EntrySource.Message:
+                _textBuilder.Append(entry.Message);
+                break;
+            case EntrySource.Action:
+                AppendActionName(entry.Action);
+                _textBuilder.Append(" [").Append(entry.DeviceName).Append(']');
+                break;
+            case EntrySource.Activity:
+                _textBuilder.Append("Activity: ").Append(InputProfileNames[(int)entry.InputProfile])
+                    .Append(" / ").Append(entry.DeviceName);
+                break;
+            case EntrySource.Context:
+                _textBuilder.Append("Context: ").Append(InputTypeNames[(int)entry.InputType])
+                    .Append(" / ").Append(InputProfileNames[(int)entry.InputProfile]);
+                break;
+            case EntrySource.Reader:
+                _textBuilder.Append("Reader: ").Append(ReadKindNames[(int)entry.ReadKind]).Append(' ');
+                AppendActionName(entry.Action);
+                if (!string.IsNullOrEmpty(entry.CompositePartName))
+                    _textBuilder.Append('/').Append(entry.CompositePartName);
+                if (IsToggleTrace(entry.ReadKind))
+                    _textBuilder.Append(entry.BoolValue ? " = True" : " = False");
+                break;
+        }
+        return entry.Text = _textBuilder.ToString();
+    }
+
+    private void AppendActionName(InputAction action)
+    {
+        string mapName = action.actionMap?.name;
+        if (!string.IsNullOrEmpty(mapName)) _textBuilder.Append(mapName).Append('/');
+        _textBuilder.Append(action.name);
+    }
+
     private void RemoveAt(int index)
     {
-        if (index < 0 || index >= _entryCount)
-        {
-            return;
-        }
-
         int moveCount = _entryCount - index - 1;
         if (moveCount > 0)
         {
@@ -437,14 +502,9 @@ public sealed class InputVisualizer : MonoBehaviour
         _entries[_entryCount] = default;
     }
 
-    private void EnsureHistoryCapacity()
+    private void ResizeHistory()
     {
         maxHistoryEntries = Mathf.Max(1, maxHistoryEntries);
-        if (_entries == null)
-        {
-            _entries = _history;
-        }
-
         if (_entries.Length >= maxHistoryEntries)
         {
             return;
@@ -523,12 +583,29 @@ public sealed class InputVisualizer : MonoBehaviour
     private struct HistoryEntry
     {
         internal string Text;
-        internal string Key;
+        internal string Message;
+        internal string DeviceName;
+        internal string CompositePartName;
+        internal InputAction Action;
+        internal InputReader.ReadTraceKind ReadKind;
+        internal InputWatch.InputType InputType;
+        internal InputWatch.InputProfile InputProfile;
+        internal bool BoolValue;
         internal float Timestamp;
         internal EntryKind Kind;
+        internal EntrySource Source;
     }
 
-    private enum EntryKind
+    private enum EntrySource : byte
+    {
+        Message,
+        Action,
+        Activity,
+        Context,
+        Reader
+    }
+
+    private enum EntryKind : byte
     {
         Normal,
         Active,

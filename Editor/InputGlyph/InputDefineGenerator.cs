@@ -92,7 +92,7 @@ public sealed class InputDefineGeneratorWindow : EditorWindow
         }
 
         EditorGUILayout.HelpBox(
-            "The generated class reads actions through UXInput.Reader and toggles maps through IInputActionProvider.Actions.",
+            "The generated class reads actions through UXInput.Reader and toggles maps through UXInput.Reader.FindActionMap.",
             MessageType.None);
     }
 
@@ -204,7 +204,7 @@ internal static class InputDefineCodeGenerator
         builder.Append(actions != null ? actions.name : "InputActionAsset");
         builder.AppendLine(".");
         builder.AppendLine("//");
-        builder.AppendLine("// 边沿/开关读取请使用调用方持有的 UXInput.Reader.ButtonState 字段，避免全局状态泄漏。");
+        builder.AppendLine("// 边沿/开关读取请使用调用方持有的 InputReader.ButtonState 字段，避免全局状态泄漏。");
         builder.AppendLine("// </auto-generated>");
         builder.AppendLine("using AlicizaX;");
         builder.AppendLine("using UnityEngine;");
@@ -296,7 +296,7 @@ internal static class InputDefineCodeGenerator
         builder.AppendLine("{");
         AppendIndent(builder, indent);
         AppendIndent(builder, indent);
-        builder.AppendLine("return InputActionProvider.FindActionMap(mapName, false);");
+        builder.AppendLine("return UXInput.Reader.FindActionMap(mapName, false);");
         AppendIndent(builder, indent);
         builder.AppendLine("}");
         builder.AppendLine();
@@ -487,10 +487,10 @@ internal static class InputDefineCodeGenerator
         switch (accessorKind)
         {
             case AccessorKind.Button:
-                builder.Append("UXInput.Reader.ReadButton(");
+                builder.Append("UXInput.Reader.IsButtonPressed(");
                 break;
             case AccessorKind.Pressed:
-                builder.Append("UXInput.Reader.ReadPressed(");
+                builder.Append("UXInput.Reader.IsPressed(");
                 break;
             default:
                 builder.Append("UXInput.Reader.ReadValue<");

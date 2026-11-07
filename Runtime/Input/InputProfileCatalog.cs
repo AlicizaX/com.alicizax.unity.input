@@ -8,7 +8,7 @@ using System.Collections.Generic;
 public readonly struct InputProfileInfo
 {
     /// <summary>对应的运行时 Profile 枚举。</summary>
-    public readonly UXInput.Watch.InputProfile Profile;
+    public readonly InputWatch.InputProfile Profile;
 
     /// <summary>稳定的 Profile ID，与图标数据库、序列化数据中的 profileId 一致。</summary>
     public readonly string Id;
@@ -23,7 +23,7 @@ public readonly struct InputProfileInfo
     public readonly string[] BindingGroupHints;
 
     internal InputProfileInfo(
-        UXInput.Watch.InputProfile profile,
+        InputWatch.InputProfile profile,
         string id,
         string displayName,
         string[] fallbackIds,
@@ -47,57 +47,57 @@ public static class InputProfileCatalog
 
     private static readonly InputProfileInfo[] ProfilesByValue =
     {
-        new InputProfileInfo(UXInput.Watch.InputProfile.Unknown, "Unknown", "Unknown", NoFallbacks, NoHints),
+        new InputProfileInfo(InputWatch.InputProfile.Unknown, "Unknown", "Unknown", NoFallbacks, NoHints),
         new InputProfileInfo(
-            UXInput.Watch.InputProfile.Touch,
+            InputWatch.InputProfile.Touch,
             "Touch",
             "Touch",
             NoFallbacks,
             new[] { "touch", "pen" }),
         new InputProfileInfo(
-            UXInput.Watch.InputProfile.KeyboardMouse,
+            InputWatch.InputProfile.KeyboardMouse,
             "KeyboardMouse",
             "Keyboard & Mouse",
             NoFallbacks,
             new[] { "keyboard", "mouse", "keyboard&mouse", "keyboardmouse", "kbm" }),
         new InputProfileInfo(
-            UXInput.Watch.InputProfile.GenericGamepad,
+            InputWatch.InputProfile.GenericGamepad,
             "GenericGamepad",
             "Generic Gamepad",
             NoFallbacks,
             new[] { "gamepad", "controller" }),
         new InputProfileInfo(
-            UXInput.Watch.InputProfile.GenericJoystick,
+            InputWatch.InputProfile.GenericJoystick,
             "GenericJoystick",
             "Generic Joystick",
             new[] { "GenericGamepad" },
             new[] { "joystick", "gamepad", "controller" }),
         new InputProfileInfo(
-            UXInput.Watch.InputProfile.Xbox,
+            InputWatch.InputProfile.Xbox,
             "Xbox",
             "Xbox",
             new[] { "GenericGamepad" },
             new[] { "xbox", "xinput", "gamepad", "controller" }),
         new InputProfileInfo(
-            UXInput.Watch.InputProfile.PlayStation,
+            InputWatch.InputProfile.PlayStation,
             "PlayStation",
             "PlayStation",
             new[] { "GenericGamepad" },
             new[] { "playstation", "dualshock", "dualsense", "gamepad", "controller" }),
         new InputProfileInfo(
-            UXInput.Watch.InputProfile.Switch,
+            InputWatch.InputProfile.Switch,
             "Switch",
             "Switch",
             new[] { "GenericGamepad", "Xbox" },
             new[] { "switch", "nintendo", "joy-con", "joycon", "gamepad", "controller" }),
         new InputProfileInfo(
-            UXInput.Watch.InputProfile.SteamDeck,
+            InputWatch.InputProfile.SteamDeck,
             "SteamDeck",
             "Steam Deck",
             new[] { "Xbox", "GenericGamepad" },
             new[] { "steamdeck", "steam", "xbox", "xinput", "gamepad", "controller" }),
         new InputProfileInfo(
-            UXInput.Watch.InputProfile.SteamController,
+            InputWatch.InputProfile.SteamController,
             "SteamController",
             "Steam Controller",
             new[] { "SteamDeck", "Xbox", "GenericGamepad" },
@@ -120,7 +120,7 @@ public static class InputProfileCatalog
     /// <summary>
     /// 获取指定 Profile 的稳定 ID。
     /// </summary>
-    public static string GetId(UXInput.Watch.InputProfile profile)
+    public static string GetId(InputWatch.InputProfile profile)
     {
         int index = (int)profile;
         return index >= 0 && index < IdsByValue.Length ? IdsByValue[index] : "Unknown";
@@ -147,7 +147,7 @@ public static class InputProfileCatalog
     /// <summary>
     /// 尝试按枚举查找 Profile 元数据。
     /// </summary>
-    public static bool TryGet(UXInput.Watch.InputProfile profile, out InputProfileInfo info)
+    public static bool TryGet(InputWatch.InputProfile profile, out InputProfileInfo info)
     {
         int index = (int)profile;
         if (index >= 0 && index < ProfilesByValue.Length)
@@ -166,7 +166,7 @@ public static class InputProfileCatalog
         int count = 0;
         for (int i = 0; i < ProfilesByValue.Length; i++)
         {
-            if (ProfilesByValue[i].Profile == UXInput.Watch.InputProfile.Unknown)
+            if (ProfilesByValue[i].Profile == InputWatch.InputProfile.Unknown)
             {
                 continue;
             }

@@ -39,8 +39,8 @@ namespace AlicizaX.Input.Tests
 
             Assert.That(
                 InputBindingResolver.SelectForRebind(_fire, null, "UnmatchedGroup", null),
-                Is.EqualTo(0),
-                "an unmatched group falls back to the first candidate");
+                Is.EqualTo(-1),
+                "an explicit target must not select an unrelated binding");
         }
 
         [Test]
@@ -53,19 +53,21 @@ namespace AlicizaX.Input.Tests
             Assert.That(
                 InputBindingResolver.SelectForRebind(_fire, null, null, "<Keyboard>"),
                 Is.EqualTo(0));
+
+            Assert.That(InputBindingResolver.SelectForRebind(_fire, null, null, "<Touchscreen>"), Is.EqualTo(-1));
         }
 
         [Test]
         public void DisplaySelectionPrefersCurrentProfile()
         {
-            InputProfileCatalog.TryGet(UXInput.Watch.InputProfile.KeyboardMouse, out InputProfileInfo keyboardInfo);
-            InputProfileCatalog.TryGet(UXInput.Watch.InputProfile.Xbox, out InputProfileInfo xboxInfo);
+            InputProfileCatalog.TryGet(InputWatch.InputProfile.KeyboardMouse, out InputProfileInfo keyboardInfo);
+            InputProfileCatalog.TryGet(InputWatch.InputProfile.Xbox, out InputProfileInfo xboxInfo);
 
             Assert.That(
                 InputBindingResolver.SelectForDisplay(
                     _fire,
                     null,
-                    UXInput.Watch.InputProfile.KeyboardMouse,
+                    InputWatch.InputProfile.KeyboardMouse,
                     keyboardInfo.BindingGroupHints),
                 Is.EqualTo(0));
 
@@ -73,7 +75,7 @@ namespace AlicizaX.Input.Tests
                 InputBindingResolver.SelectForDisplay(
                     _fire,
                     null,
-                    UXInput.Watch.InputProfile.Xbox,
+                    InputWatch.InputProfile.Xbox,
                     xboxInfo.BindingGroupHints),
                 Is.EqualTo(1));
         }
@@ -81,16 +83,16 @@ namespace AlicizaX.Input.Tests
         [Test]
         public void CompositePartSelectionReturnsNamedPart()
         {
-            InputProfileCatalog.TryGet(UXInput.Watch.InputProfile.KeyboardMouse, out InputProfileInfo info);
+            InputProfileCatalog.TryGet(InputWatch.InputProfile.KeyboardMouse, out InputProfileInfo info);
 
-            int rebindIndex = InputBindingResolver.SelectForRebind(_move, "Up", "KeyboardMouse", null);
+            int rebindIndex = InputBindingResolver.SelectForRebind(_move, "Up", null, "<Keyboard>");
             Assert.That(rebindIndex, Is.GreaterThanOrEqualTo(0));
             Assert.That(_move.bindings[rebindIndex].name, Is.EqualTo("Up"));
 
             int displayIndex = InputBindingResolver.SelectForDisplay(
                 _move,
                 "Down",
-                UXInput.Watch.InputProfile.KeyboardMouse,
+                InputWatch.InputProfile.KeyboardMouse,
                 info.BindingGroupHints);
             Assert.That(displayIndex, Is.GreaterThanOrEqualTo(0));
             Assert.That(_move.bindings[displayIndex].name, Is.EqualTo("Down"));

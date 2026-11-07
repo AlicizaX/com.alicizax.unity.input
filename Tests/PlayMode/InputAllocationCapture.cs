@@ -19,7 +19,7 @@ namespace AlicizaX.Input.Tests
         private const int MaxProfilerBytes = 256 * 1024 * 1024;
         private static int _sequence;
 
-        internal static IEnumerator Measure(string name, Action action, Action<long, int> verify)
+        internal static IEnumerator Measure(string name, Action action, Action<long, int> verify = null)
         {
             bool wasEnabled = ProfilerDriver.enabled;
             bool wasProfileEditor = ProfilerDriver.profileEditor;
@@ -103,7 +103,7 @@ namespace AlicizaX.Input.Tests
                 string line = "INPUT_ALLOC," + name + "," + bytes + "," + allocations + "," + clock.Elapsed.TotalMilliseconds.ToString("F4");
                 TestContext.WriteLine(line);
                 UnityEngine.Debug.Log(line);
-                verify(bytes, allocations);
+                verify?.Invoke(bytes, allocations);
             }
             finally
             {

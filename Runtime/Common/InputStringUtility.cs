@@ -1,6 +1,5 @@
 #if INPUTSYSTEM_SUPPORT
 using System;
-using UnityEngine.InputSystem;
 
 /// <summary>
 /// 输入包内部共用的字符串比较与绑定路径工具，全部方法均不产生托管分配。
@@ -49,7 +48,7 @@ internal static class InputStringUtility
     /// <summary>
     /// 判断绑定分组串（以分号分隔）是否包含指定分组，不拆分字符串、不分配数组。
     /// </summary>
-    internal static bool GroupsContain(string groups, string group)
+    internal static bool ContainsGroup(string groups, string group)
     {
         if (string.IsNullOrEmpty(groups) || string.IsNullOrEmpty(group))
         {
@@ -87,14 +86,6 @@ internal static class InputStringUtility
         }
 
         return false;
-    }
-
-    /// <summary>
-    /// 读取绑定的有效控制路径，重绑定路径优先。
-    /// </summary>
-    internal static string GetEffectivePath(in InputBinding binding)
-    {
-        return string.IsNullOrWhiteSpace(binding.effectivePath) ? binding.path : binding.effectivePath;
     }
 
     /// <summary>

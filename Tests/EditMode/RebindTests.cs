@@ -12,26 +12,75 @@ namespace AlicizaX.Input.Tests
     [TestFixture]
     public sealed class RebindTests : InputDeviceTestBase
     {
-        private string _bindingDirectory;
-
-        [SetUp]
-        public void SetUpRebind()
+        [Test]
+        public void ConfirmDisablesConflictingDefaultBinding()
         {
-            _bindingDirectory = Path.Combine(Path.GetTempPath(), "AlicizaXInputTests", Guid.NewGuid().ToString("N"));
-            UXInput.Rebind.BindingFilePathOverride = Path.Combine(_bindingDirectory, "input_bindings.json");
-            UXInput.Rebind.Initialize(Asset);
+            AddKeyboard();
+            InputAction jump = Action("Jump");
+            InputAction submit = Action("Submit");
+            UXInput.Rebind.PrepareRebind(jump, 0, "<Keyboard>/enter");
+            UXInput.Rebind.ConfirmApply(save: false);
+            SetKeys(Key.Enter);
+
+            Assert.That(submit.bindings[0].effectivePath, Is.Empty);
+            Assert.That(jump.IsPressed(), Is.True);
+            Assert.That(submit.IsPressed(), Is.False);
+            Assert.That(UXInput.Glyph.GetBindingControlPath(submit), Is.Empty);
         }
 
-        [TearDown]
-        public void TearDownRebind()
+        [Test]
+        public void CompletionListenerCanStartNextRebind()
         {
-            UXInput.Rebind.ResetToDefault(false);
-            UXInput.Rebind.Shutdown(true);
-            UXInput.Rebind.BindingFilePathOverride = null;
-
-            if (_bindingDirectory != null && Directory.Exists(_bindingDirectory))
+            AddKeyboard();
+            InputAction jump = Action("Jump");
+            InputAction submit = Action("Submit");
+            void OnEnded(bool completed, RebindChange change)
             {
-                Directory.Delete(_bindingDirectory, true);
+                if (completed) UXInput.Rebind.Begin(submit);
+            }
+            UXInput.Rebind.OnRebindEnded += OnEnded;
+            try
+            {
+                UXInput.Rebind.Begin(jump, RebindRequest.Default.WithWaitDelay(0f));
+                SetKeys(Key.Tab);
+                Assert.That(UXInput.Rebind.IsRebinding, Is.True);
+                Assert.That(jump.enabled, Is.True);
+                Assert.That(submit.enabled, Is.False);
+                UXInput.Rebind.Cancel();
+                Assert.That(submit.enabled, Is.True);
+            }
+            finally
+            {
+                UXInput.Rebind.OnRebindEnded -= OnEnded;
+            }
+        }
+
+        [Test]
+        public void StartedListenerCanCancelTheRunningOperation()
+        {
+            AddKeyboard();
+            UXInput.Rebind.OnRebindStarted += UXInput.Rebind.Cancel;
+            UXInput.Rebind.Begin(Action("Jump"));
+            Assert.That(UXInput.Rebind.IsRebinding, Is.False);
+            Assert.That(Action("Jump").enabled, Is.True);
+        }
+
+        [Test]
+        public void ThrowingCancelListenerCannotKeepOperationAlive()
+        {
+            AddKeyboard();
+            void Throw(bool completed, RebindChange change) => throw new InvalidOperationException("listener failure");
+            UXInput.Rebind.Begin(Action("Jump"));
+            UXInput.Rebind.OnRebindEnded += Throw;
+            try
+            {
+                Assert.Throws<InvalidOperationException>(() => UXInput.Rebind.Cancel());
+                Assert.That(UXInput.Rebind.IsRebinding, Is.False);
+                Assert.That(Action("Jump").enabled, Is.True);
+            }
+            finally
+            {
+                UXInput.Rebind.OnRebindEnded -= Throw;
             }
         }
 
@@ -228,8 +277,8 @@ namespace AlicizaX.Input.Tests
             jump.RemoveAllBindingOverrides();
             Assert.That(jump.bindings[0].overridePath, Is.Null.Or.Empty);
 
-            UXInput.Rebind.Shutdown();
-            UXInput.Rebind.Initialize(Asset);
+            UXInput.Shutdown();
+            UXInput.Initialize(Asset, null, BindingFilePath);
 
             Assert.That(jump.bindings[0].overridePath, Is.EqualTo("<Keyboard>/tab"));
         }

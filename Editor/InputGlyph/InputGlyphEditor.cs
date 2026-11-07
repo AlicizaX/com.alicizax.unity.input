@@ -325,7 +325,7 @@ public sealed class InputGlyphEditor : AlicizaUIEditor
 
             _compositePartName.stringValue = value;
             _compositePartName.serializedObject.ApplyModifiedProperties();
-            MarkTargetsDirty();
+            SetTargetsDirty();
         });
 
         AlicizaRow row = AlicizaEditorUI.AddRow(_compositeHost, "Composite Part", partField);
@@ -376,7 +376,7 @@ public sealed class InputGlyphEditor : AlicizaUIEditor
         }
 
         int count = _profileEvents.arraySize;
-        EnsureEventFoldoutState(count);
+        ResizeEventFoldoutState(count);
         if (_eventsCountBadge != null)
         {
             _eventsCountBadge.text = count.ToString();
@@ -613,7 +613,7 @@ public sealed class InputGlyphEditor : AlicizaUIEditor
 
         profileIdProp.stringValue = profileId;
         profileIdProp.serializedObject.ApplyModifiedProperties();
-        MarkTargetsDirty();
+        SetTargetsDirty();
         UpdateEventCard(binding);
     }
 
@@ -639,16 +639,16 @@ public sealed class InputGlyphEditor : AlicizaUIEditor
         SerializedProperty profileId = eventProp.FindPropertyRelative(ProfileIdPropertyName);
         if (profileId != null)
         {
-            profileId.stringValue = InputProfileCatalog.GetId(UXInput.Watch.InputProfile.KeyboardMouse);
+            profileId.stringValue = InputProfileCatalog.GetId(InputWatch.InputProfile.KeyboardMouse);
         }
 
         ClearUnityEvent(eventProp.FindPropertyRelative(OnMatchedPropertyName));
         ClearUnityEvent(eventProp.FindPropertyRelative(OnNotMatchedPropertyName));
 
         serializedObject.ApplyModifiedProperties();
-        MarkTargetsDirty();
+        SetTargetsDirty();
 
-        EnsureEventFoldoutState(index + 1);
+        ResizeEventFoldoutState(index + 1);
         _eventFoldouts[index] = true;
         Refresh();
     }
@@ -675,14 +675,14 @@ public sealed class InputGlyphEditor : AlicizaUIEditor
         Undo.RecordObjects(targets, "Delete Input Glyph Profile Event");
         events.DeleteArrayElementAtIndex(index);
         serializedObject.ApplyModifiedProperties();
-        MarkTargetsDirty();
+        SetTargetsDirty();
         Refresh();
     }
 
     private void SetAllEventFoldouts(bool expanded)
     {
         int count = _profileEvents != null ? _profileEvents.arraySize : _eventBindings.Count;
-        EnsureEventFoldoutState(count);
+        ResizeEventFoldoutState(count);
         for (int i = 0; i < _eventFoldouts.Count; i++)
         {
             _eventFoldouts[i] = expanded;
@@ -722,7 +722,7 @@ public sealed class InputGlyphEditor : AlicizaUIEditor
         }
     }
 
-    private void EnsureEventFoldoutState(int count)
+    private void ResizeEventFoldoutState(int count)
     {
         if (count < 0)
         {
@@ -938,7 +938,7 @@ public sealed class InputGlyphEditor : AlicizaUIEditor
         return row;
     }
 
-    private void MarkTargetsDirty()
+    private void SetTargetsDirty()
     {
         for (int i = 0; i < targets.Length; i++)
         {

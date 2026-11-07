@@ -16,7 +16,7 @@ namespace AlicizaX.Input.Tests
             {
                 SeedProfiles(database);
 
-                Assert.That(InputGlyphDatabaseWindow.EnsureFixedProfiles(database), Is.True);
+                Assert.That(InputGlyphDatabaseWindow.SyncFixedProfiles(database), Is.True);
 
                 var serialized = new SerializedObject(database);
                 SerializedProperty profiles = serialized.FindProperty("profiles");
@@ -40,7 +40,7 @@ namespace AlicizaX.Input.Tests
                 Assert.That(FindProfile(profiles, "Custom"), Is.Not.Null, "unknown profiles must be preserved");
 
                 Assert.That(
-                    InputGlyphDatabaseWindow.EnsureFixedProfiles(database),
+                    InputGlyphDatabaseWindow.SyncFixedProfiles(database),
                     Is.False,
                     "a second sync must be a no-op");
             }
@@ -56,7 +56,7 @@ namespace AlicizaX.Input.Tests
             InputGlyphDatabase database = ScriptableObject.CreateInstance<InputGlyphDatabase>();
             try
             {
-                Assert.That(InputGlyphDatabaseWindow.EnsureFixedProfiles(database), Is.True);
+                Assert.That(InputGlyphDatabaseWindow.SyncFixedProfiles(database), Is.True);
 
                 var serialized = new SerializedObject(database);
                 SerializedProperty profiles = serialized.FindProperty("profiles");
@@ -89,7 +89,7 @@ namespace AlicizaX.Input.Tests
                 hints.GetArrayElementAtIndex(0).stringValue = "custom-hint";
                 serialized.ApplyModifiedPropertiesWithoutUndo();
 
-                InputGlyphDatabaseWindow.EnsureFixedProfiles(database);
+                InputGlyphDatabaseWindow.SyncFixedProfiles(database);
 
                 var after = new SerializedObject(database);
                 SerializedProperty xbox = FindProfile(after.FindProperty("profiles"), "Xbox");

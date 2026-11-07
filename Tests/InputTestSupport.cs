@@ -1,6 +1,7 @@
 #if INPUTSYSTEM_SUPPORT
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
 using NUnit.Framework;
 using UnityEngine;
@@ -45,7 +46,7 @@ namespace AlicizaX.Input.Tests
     }
 
     /// <summary>
-    /// 输入相关测试基类：隔离 Watch/Rebind 静态状态并管理测试设备。
+    /// 输入相关测试基类：通过门面启停独立模块实例并管理测试设备。
     /// </summary>
     public abstract class InputDeviceTestBase
     {
@@ -60,6 +61,7 @@ namespace AlicizaX.Input.Tests
         private bool _previousRunPlayerUpdatesInEditMode;
 #endif
 
+        protected string BindingFilePath { get; private set; }
         protected InputActionAsset Asset { get; private set; }
         protected Keyboard TestKeyboard { get; set; }
         protected Gamepad TestGamepad { get; set; }
@@ -69,19 +71,19 @@ namespace AlicizaX.Input.Tests
         {
             EnableEditModePlayerUpdates();
 
-            UXInput.Watch.Shutdown(true);
-            UXInput.Rebind.Shutdown(true);
-            UXInput.Reader.ResetForPlayMode();
-            UXHotkeySystem.ResetForPlayMode();
-            UXInput.Glyph.SetDatabase(null);
+            Assert.That(UXInput.IsInitialized, Is.False, "the previous test must close its input session");
+            BindingFilePath = Path.Combine(Path.GetTempPath(), "AlicizaXInputTests", Guid.NewGuid().ToString("N"), "input_bindings.json");
             Asset = InputTestAssets.Create();
             ConfigureAsset(Asset);
-            UXInput.Watch.Initialize();
+            UXInput.Initialize(Asset, null, BindingFilePath);
+            UXHotkeySystem.Initialize(Asset);
         }
 
         [TearDown]
         public void BaseTearDown()
         {
+            UXHotkeySystem.Shutdown();
+            UXInput.Shutdown();
             for (int i = 0; i < _devices.Count; i++)
             {
                 if (_devices[i] != null && _devices[i].added)
@@ -91,24 +93,21 @@ namespace AlicizaX.Input.Tests
             }
 
             _devices.Clear();
-            UXInput.Glyph.SetDatabase(null);
-            UXHotkeySystem.Shutdown();
-            UXInput.Rebind.Shutdown(true);
-            UXInput.Watch.Shutdown(true);
             InputTestAssets.Destroy(Asset);
             Asset = null;
             TestKeyboard = null;
             TestGamepad = null;
 
+            string directory = Path.GetDirectoryName(BindingFilePath);
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
             RestoreEditModePlayerUpdates();
         }
 
         /// <summary>
-        /// 派生测试可在启用资产前追加绑定。默认直接启用资产。
+        /// 派生测试可在启用资产前追加绑定。初始化门面之前配置资产。
         /// </summary>
         protected virtual void ConfigureAsset(InputActionAsset asset)
         {
-            asset.Enable();
         }
 
         private void EnableEditModePlayerUpdates()
@@ -193,22 +192,6 @@ namespace AlicizaX.Input.Tests
             return Asset.FindAction("Gameplay/" + actionName);
         }
 
-        /// <summary>
-        /// 用真实 InputActionProvider 注册测试资产，覆盖按名称解析动作的路径。
-        /// </summary>
-        protected void InitializeProvider()
-        {
-            typeof(InputActionProvider)
-                .GetMethod("Initialize", BindingFlags.Static | BindingFlags.NonPublic)
-                .Invoke(null, new object[] { null, Asset, null });
-        }
-
-        protected void ShutdownProvider()
-        {
-            typeof(InputActionProvider)
-                .GetMethod("Shutdown", BindingFlags.Static | BindingFlags.NonPublic)
-                .Invoke(null, new object[] { null });
-        }
     }
 }
 #endif

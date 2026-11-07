@@ -23,26 +23,26 @@ namespace AlicizaX.Input.Tests
         {
             AddGamepad();
             Assert.That(UXInput.Glyph.GetBindingControlPath(_attack), Is.EqualTo("<Gamepad>/rightTrigger"));
-            Assert.That(UXInput.Glyph.GetDisplayNameFromInputAction(_attack), Is.Not.Empty);
+            Assert.That(UXInput.Glyph.GetDisplayName(_attack), Is.Not.Empty);
 
             SetKeys(Key.A);
             Assert.That(UXInput.Glyph.GetBindingControlPath(_attack), Is.EqualTo("<Keyboard>/f"));
-            Assert.That(UXInput.Glyph.GetDisplayNameFromInputAction(_attack), Is.Not.Empty);
+            Assert.That(UXInput.Glyph.GetDisplayName(_attack), Is.Not.Empty);
         }
 
         [Test]
-        public void TryGetBindingControlReportsSelectedBinding()
+        public void TryGetBindingReportsSelectedBinding()
         {
             AddGamepad();
 
-            Assert.That(UXInput.Glyph.TryGetBindingControl(_attack, null, out InputBinding binding), Is.True);
+            Assert.That(UXInput.Glyph.TryGetBinding(_attack, null, out InputBinding binding), Is.True);
             Assert.That(binding.path, Is.EqualTo("<Gamepad>/rightTrigger"));
         }
 
         [Test]
         public void MissingProfileFallsBackToFirstBinding()
         {
-            UXInput.Watch.Shutdown(true);
+            UXInput.Shutdown();
             Assert.That(
                 UXInput.Glyph.GetBindingControlPath(_attack),
                 Is.EqualTo("<Keyboard>/f"),

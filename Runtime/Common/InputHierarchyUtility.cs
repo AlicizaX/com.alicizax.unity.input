@@ -24,30 +24,6 @@ internal static class InputHierarchyUtility
     }
 
     /// <summary>
-    /// 向上查找最近的父级 UIHolder。
-    /// </summary>
-    internal static UIHolderObjectBase FindParentHolder(UIHolderObjectBase holder)
-    {
-        if (holder == null)
-        {
-            return null;
-        }
-
-        Transform current = holder.transform.parent;
-        while (current != null)
-        {
-            if (current.TryGetComponent(out UIHolderObjectBase parentHolder))
-            {
-                return parentHolder;
-            }
-
-            current = current.parent;
-        }
-
-        return null;
-    }
-
-    /// <summary>
     /// 判断 holder 是否为 root 本身或其后代。
     /// </summary>
     internal static bool IsDescendantOrSelf(UIHolderObjectBase holder, UIHolderObjectBase root)

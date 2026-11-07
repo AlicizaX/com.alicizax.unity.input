@@ -138,7 +138,7 @@ public sealed class TestRebindScript : MonoBehaviour
         ResetToDefaultInternal();
     }
 
-    private void OnDeviceContextChanged(UXInput.Watch.InputContext context)
+    private void OnDeviceContextChanged(InputWatch.InputContext context)
     {
         RefreshView();
     }
@@ -316,13 +316,13 @@ public sealed class TestRebindScript : MonoBehaviour
         {
             string displayName = _hasPendingChange && IsTargetChange(_pendingChange)
                 ? GetDisplayNameForOverridePath(_pendingChange.OverridePath)
-                : UXInput.Glyph.GetDisplayNameFromInputAction(action, partName);
+                : UXInput.Glyph.GetDisplayName(action, partName);
             bindingText.text = string.IsNullOrEmpty(displayName) ? "<unbound>" : displayName;
         }
 
         if (bindingIcon != null)
         {
-            bool hasSprite = UXInput.Glyph.TryGetUISpriteForActionPath(action, partName, out Sprite sprite);
+            bool hasSprite = UXInput.Glyph.TryGetSprite(action, partName, out Sprite sprite);
             bindingIcon.sprite = hasSprite ? sprite : null;
             bindingIcon.enabled = hasSprite;
         }
@@ -375,7 +375,7 @@ public sealed class TestRebindScript : MonoBehaviour
             return actionReference.action;
         }
 
-        return InputActionProvider.TryResolveAction(actionName, out InputAction action) ? action : null;
+        return UXInput.Reader.TryResolveAction(actionName, out InputAction action) ? action : null;
     }
 
     private string ResolveActionName()
@@ -401,7 +401,7 @@ public sealed class TestRebindScript : MonoBehaviour
             return "<cleared>";
         }
 
-        string displayName = UXInput.Glyph.GetDisplayNameFromControlPath(overridePath);
+        string displayName = UXInput.Glyph.GetDisplayName(overridePath);
         return string.IsNullOrEmpty(displayName) ? overridePath : displayName;
     }
 

@@ -101,7 +101,7 @@ namespace AlicizaX.UI.UXNavigation
                 _bakedRows.Clear();
                 _content.Clear();
 
-                AutoBindHolder();
+                AssignHolderIfMissing();
                 if (ClearDefaultSelectableIfMissing())
                 {
                     serializedObject.ApplyModifiedProperties();
@@ -498,7 +498,7 @@ namespace AlicizaX.UI.UXNavigation
             }
 
             serializedObject.Update();
-            AutoBindHolder();
+            AssignHolderIfMissing();
 
             Selectable[] allSelectables = scope.GetComponentsInChildren<Selectable>(true);
             var ownedSelectables = new List<Selectable>(allSelectables.Length);
@@ -531,7 +531,7 @@ namespace AlicizaX.UI.UXNavigation
             RequestRebuild();
         }
 
-        private void AutoBindHolder()
+        private void AssignHolderIfMissing()
         {
             if (_holder == null || _holder.objectReferenceValue != null)
             {
