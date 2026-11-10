@@ -1,6 +1,4 @@
 using System.Collections;
-using AlicizaX.UI.Runtime;
-using AlicizaX.UI.UXNavigation;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -16,6 +14,7 @@ namespace AlicizaX.Input.Tests
             AddButton(scope);
             Assert.That(ScopeCount, Is.EqualTo(1));
 
+            InputTestViews.Unbind(scope.Holder);
             Object.Destroy(scope.gameObject);
             yield return null;
 
@@ -25,9 +24,8 @@ namespace AlicizaX.Input.Tests
         [UnityTest]
         public IEnumerator ScopeLifecycleRestoresFocusAcrossFramesWithoutManualRefresh()
         {
-            var root = Keep(new GameObject("automatic-navigation-scope", typeof(RectTransform), typeof(Canvas)));
-            root.layer = UIComponent.UIShowLayer;
-            var lower = root.AddComponent<UXNavigationScope>();            var first = AddButton(lower);
+            var lower = Scope(0);
+            var first = AddButton(lower);
             var higher = Scope(10);
             var second = AddButton(higher);
             yield return null;
@@ -39,6 +37,7 @@ namespace AlicizaX.Input.Tests
             higher.gameObject.SetActive(true);
             yield return null;
             Assert.That(eventSystem.currentSelectedGameObject, Is.SameAs(second.gameObject));
+            InputTestViews.Unbind(higher.Holder);
             Object.Destroy(higher.gameObject);
             yield return null;
             Assert.That(higher == null, Is.True);

@@ -23,14 +23,14 @@ namespace UnityEngine.UI
                 bool shouldRebind = Application.isPlaying && isActiveAndEnabled;
                 if (shouldRebind)
                 {
-                    this.UnBindHotKey();
+                    UnregisterHotkey();
                 }
 
                 _hotkeyAction = value;
 
                 if (shouldRebind)
                 {
-                    this.BindHotKey();
+                    RegisterHotkey();
                 }
             }
         }
@@ -50,12 +50,12 @@ namespace UnityEngine.UI
 
         protected virtual void OnEnable()
         {
-            this.BindHotKey();
+            RegisterHotkey();
         }
 
         protected virtual void OnDisable()
         {
-            this.UnBindHotKey();
+            UnregisterHotkey();
         }
 
 #if UNITY_EDITOR
@@ -66,6 +66,19 @@ namespace UnityEngine.UI
 #endif
 
         public abstract void TriggerHotkey();
+
+        /// <summary>
+        /// 注册到当前输入会话。输入层尚未创建（或已销毁）时保持未注册，由 Holder/Action 配置决定是否有效。
+        /// </summary>
+        private void RegisterHotkey()
+        {
+            UXInput.Hotkey?.RegisterHotkey(this, _holder, _hotkeyAction, _hotkeyPressType);
+        }
+
+        private void UnregisterHotkey()
+        {
+            UXInput.Hotkey?.UnregisterHotkey(this);
+        }
 
         /// <summary>
         /// 编辑器期解析所属 Holder。Holder 位于同一预制体内，运行时直接使用序列化结果。

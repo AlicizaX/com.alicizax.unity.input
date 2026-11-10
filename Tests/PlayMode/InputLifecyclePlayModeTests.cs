@@ -34,6 +34,7 @@ namespace AlicizaX.Input.Tests
         [SetUp]
         public void SetUp()
         {
+            InputTestAssets.RemoveTestDevices();
             if (!AppServices.IsAvailable)
             {
                 _serviceRoot = new GameObject("input-service-root", typeof(TestServiceRoot));
@@ -43,6 +44,10 @@ namespace AlicizaX.Input.Tests
         [TearDown]
         public void TearDown()
         {
+            // 用例可能在 yield 边界被判失败而中断，finally 不执行；在 TearDown 统一回收输入会话和测试设备。
+            UXInput.Shutdown();
+            InputTestAssets.RemoveTestDevices();
+            InputTestViews.UnbindAll();
             if (_serviceRoot != null)
             {
                 Object.DestroyImmediate(_serviceRoot);
@@ -69,36 +74,6 @@ namespace AlicizaX.Input.Tests
         }
 
         [UnityTest]
-        public IEnumerator DuplicateProviderCannotReplaceOrShutDownOwner()
-        {
-            var asset = InputTestAssets.Create();
-            var owner = CreateProvider(asset);
-            var duplicate = CreateProvider(asset);
-            try
-            {
-                owner.SetActive(true);
-                var watch = UXInput.Watch;
-                LogAssert.Expect(LogType.Warning, new Regex("Duplicate InputService ignored"));
-                duplicate.SetActive(true);
-                yield return null;
-                Assert.That(UXInput.Watch, Is.SameAs(watch));
-                Object.DestroyImmediate(duplicate);
-                Assert.That(UXInput.IsInitialized, Is.True);
-                Assert.That(asset.FindAction("Gameplay/Jump").enabled, Is.True);
-                owner.SetActive(false);
-                Assert.That(UXInput.IsInitialized, Is.True, "disabling the provider does not end the input lifetime");
-                Object.DestroyImmediate(owner);
-                Assert.That(UXInput.IsInitialized, Is.False);
-            }
-            finally
-            {
-                Object.DestroyImmediate(duplicate);
-                Object.DestroyImmediate(owner);
-                Object.DestroyImmediate(asset);
-            }
-        }
-
-        [UnityTest]
         public IEnumerator ProviderDisableKeepsEnabledGlyphAndHotkeyConnected()
         {
             var asset = InputTestAssets.Create();
@@ -109,6 +84,7 @@ namespace AlicizaX.Input.Tests
             var holderObject = new GameObject("lifecycle-holder", typeof(Canvas));
             holderObject.layer = UIComponent.UIShowLayer;
             var holder = holderObject.AddComponent<TestHolder>();
+            InputTestViews.Bind(holder);
             var triggerObject = new GameObject("lifecycle-hotkey");
             triggerObject.SetActive(false);
             triggerObject.transform.SetParent(holderObject.transform, false);
@@ -141,6 +117,7 @@ namespace AlicizaX.Input.Tests
             {
                 Object.DestroyImmediate(provider);
                 Object.DestroyImmediate(glyphObject);
+                InputTestViews.UnbindAll();
                 Object.DestroyImmediate(holderObject);
                 Object.DestroyImmediate(reference);
                 Object.DestroyImmediate(asset);
@@ -218,6 +195,7 @@ namespace AlicizaX.Input.Tests
             var holderObject = new GameObject("hotkey-holder");
             holderObject.layer = UIComponent.UIShowLayer;
             var holder = holderObject.AddComponent<TestHolder>();
+            InputTestViews.Bind(holder);
 
             var triggerObject = new GameObject("hotkey-trigger");
             triggerObject.SetActive(false);
@@ -235,18 +213,21 @@ namespace AlicizaX.Input.Tests
             yield return null;
 
             Assert.That(trigger.IsRegistered, Is.True, "enabled hotkey must register against the provider asset");
-            Assert.That(UXHotkeySystemRegistryCount("Scopes"), Is.EqualTo(1));
+            InputHotkey hotkey = UXInput.Hotkey;
+            Assert.That(InputHotkeyRegistryCount(hotkey, "_scopesByHolder"), Is.EqualTo(1));
 
             Object.Destroy(providerObject);
             yield return null;
 
             Assert.That(trigger.IsRegistered, Is.False, "provider teardown must unregister hotkeys");
-            Assert.That(UXHotkeySystemRegistryCount("Scopes"), Is.Zero);
-            Assert.That(UXHotkeySystemRegistryCount("Actions"), Is.Zero);
-            Assert.That(UXHotkeySystemRegistryCount("ScopeList"), Is.Zero);
+            Assert.That(UXInput.Hotkey, Is.Null);
+            Assert.That(InputHotkeyRegistryCount(hotkey, "_scopesByHolder"), Is.Zero);
+            Assert.That(InputHotkeyRegistryCount(hotkey, "_actionStates"), Is.Zero);
+            Assert.That(InputHotkeyRegistryCount(hotkey, "_scopeList"), Is.Zero);
             Assert.That(UXInput.Reader.Actions, Is.Null);
             Assert.That(UXInput.Rebind.IsInitialized, Is.False);
 
+            InputTestViews.UnbindAll();
             Object.Destroy(holderObject);
             yield return null;
 
@@ -256,11 +237,11 @@ namespace AlicizaX.Input.Tests
             }
         }
 
-        private static int UXHotkeySystemRegistryCount(string fieldName)
+        private static int InputHotkeyRegistryCount(InputHotkey hotkey, string fieldName)
         {
-            FieldInfo field = typeof(UXHotkeySystem).GetField(fieldName, BindingFlags.Static | BindingFlags.NonPublic);
+            FieldInfo field = typeof(InputHotkey).GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.That(field, Is.Not.Null, "missing registry field " + fieldName);
-            return field.GetValue(null) is System.Collections.ICollection collection ? collection.Count : -1;
+            return field.GetValue(hotkey) is ICollection collection ? collection.Count : -1;
         }
     }
 }

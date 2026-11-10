@@ -123,7 +123,6 @@ namespace AlicizaX.Input.Tests
 
             Assert.That(context.InputType, Is.EqualTo(InputWatch.InputType.Gamepad));
             Assert.That(context.InputProfile, Is.EqualTo(InputWatch.InputProfile.GenericGamepad));
-            Assert.That(context.ControlScheme, Is.EqualTo("Gamepad"));
             Assert.That(context.DeviceId, Is.EqualTo(gamepad.deviceId));
             Assert.That(context.DeviceName, Is.Not.Empty);
             Assert.That(context.IsValid, Is.True);
@@ -160,15 +159,15 @@ namespace AlicizaX.Input.Tests
         }
 
         [Test]
-        public void BuildContextClassifiesJoystickAndTouch()
+        public void BuildContextClassifiesJoystickAsGamepadAndTouch()
         {
             Joystick joystick = Track(InputSystem.AddDevice<Joystick>("TestJoystick"));
             Assert.That(
                 UXInput.Watch.BuildContext(joystick).InputType,
-                Is.EqualTo(InputWatch.InputType.Joystick));
+                Is.EqualTo(InputWatch.InputType.Gamepad));
             Assert.That(
                 UXInput.Watch.BuildContext(joystick).InputProfile,
-                Is.EqualTo(InputWatch.InputProfile.GenericJoystick));
+                Is.EqualTo(InputWatch.InputProfile.GenericGamepad));
 
             Touchscreen touchscreen = Track(InputSystem.AddDevice<Touchscreen>("TestTouchscreen"));
             Assert.That(

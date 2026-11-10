@@ -7,12 +7,12 @@ namespace AlicizaX.UI.UXNavigation
     using AlicizaX.UI.Runtime;
 
     [DisallowMultipleComponent]
-    [AddComponentMenu("UI/UX Navigation Scope")]
-    public sealed class UXNavigationScope : MonoBehaviour, UnityEngine.ISerializationCallbackReceiver
+    [AddComponentMenu("UI/Navigation Scope")]
+    public sealed class NavigationScope : MonoBehaviour, UnityEngine.ISerializationCallbackReceiver
     {
         [SerializeField, Header("默认选中控件")] private Selectable _defaultSelectable;
 
-        [SerializeField, Header("所属 UIHolder")]
+        [SerializeField, Header("所属 UIHolder"), Tooltip("必须绑定所属 UI：Window/Widget 绑定自身 Holder，普通物体绑定所属父级 UI 的 Holder。")]
         private UIHolderObjectBase _holder;
 
         [SerializeField, Header("编辑器烘焙导航控件")] private Selectable[] _bakedSelectables = System.Array.Empty<Selectable>();
@@ -28,18 +28,13 @@ namespace AlicizaX.UI.UXNavigation
         private readonly List<bool> _rememberable = new List<bool>(16);
         private readonly HashSet<Selectable> _owned = new HashSet<Selectable>();
 
-        private Canvas _cachedCanvas;
+        private Canvas _cachedSortingCanvas;
         private Selectable _lastSelected;
         private bool _navigationSuppressed;
         private int _cachedHierarchyDepth = -1;
         private int _bakedCount;
-        private int _runtimeSelectableCount;
-        private int _availableSelectableCount;
-        private Selectable _firstAvailableSelectable;
         private UIHolderObjectBase _subscribedHolder;
-        private bool _refreshAfterEnable;
         private bool _listsBuilt;
-        private bool _availabilityDirty = true;
 #if UNITY_EDITOR
         private bool _missingUnregisterReported;
 #endif
@@ -47,20 +42,19 @@ namespace AlicizaX.UI.UXNavigation
         internal int RuntimeIndex { get; set; } = -1;
         internal ulong ActivationSerial { get; set; }
         internal bool IsAlive { get; set; }
-        internal bool WasAlive { get; set; }
-        internal bool IsAvailable { get; set; }
+        internal bool IsNavigationAllowed { get; set; }
         public bool NavigationSuppressed => _navigationSuppressed;
         internal int BakedSelectableCount => _bakedSelectables != null ? _bakedSelectables.Length : 0;
-        public int RuntimeSelectableCount => _runtimeSelectableCount;
+        public int RuntimeSelectableCount => _selectables.Count - _bakedCount;
 
         public Selectable DefaultSelectable
         {
             get => _defaultSelectable;
             set
             {
+                if (ReferenceEquals(_defaultSelectable, value)) return;
                 _defaultSelectable = value;
-                InvalidateAvailability();
-                InvalidateNavigation();
+                NotifySelectableStateChanged();
             }
         }
 
@@ -79,98 +73,71 @@ namespace AlicizaX.UI.UXNavigation
 
                 _navigable = value;
                 _hasNavigableField = true;
-                UXNavigationSystem.RequestRefresh(true);
-            }
-        }
-
-        internal Canvas Canvas
-        {
-            get
-            {
-                if (_cachedCanvas == null)
-                {
-                    _cachedCanvas = GetComponentInParent<Canvas>(true);
-                }
-
-                return _cachedCanvas;
+                NotifySelectableStateChanged();
             }
         }
 
         internal UIHolderObjectBase Holder => _holder;
 
-        private void Awake()
+        /// <summary>所属 UI 层级中实际决定排序的 Canvas。</summary>
+        internal Canvas SortingCanvas
         {
-            InitializeLists();
-            SubscribeHolderEvents();
-            UXNavigationSystem.RegisterScope(this);
+            get
+            {
+                if (_cachedSortingCanvas == null)
+                    _cachedSortingCanvas = InputHierarchyUtility.ResolveSortingCanvas(GetComponentInParent<Canvas>(true));
+                return _cachedSortingCanvas;
+            }
         }
 
         private void OnEnable()
         {
-            _refreshAfterEnable = true;
-            InvalidateAvailability();
-            UXNavigationSystem.RequestRefresh(true);
-        }
-
-        private void LateUpdate()
-        {
-            if (!_refreshAfterEnable)
-            {
-                return;
-            }
-
-            _refreshAfterEnable = false;
-            InvalidateAvailability();
-            UXNavigationSystem.RequestRefresh(true);
+            InitializeLists();
+            _cachedSortingCanvas = null;
+            _cachedHierarchyDepth = -1;
+            SubscribeHolderEvents();
+            UXInput.Navigation?.RegisterScope(this);
         }
 
         private void OnDisable()
         {
-            _refreshAfterEnable = false;
-            InvalidateAvailability();
-            UXNavigationSystem.RequestRefresh(true);
-        }
-
-        private void OnDestroy()
-        {
             UnsubscribeHolderEvents();
-            SetNavigationSuppressed(false);
-            UXNavigationSystem.UnregisterScope(this);
+            UXInput.Navigation?.UnregisterScope(this);
         }
 
         private void OnTransformChildrenChanged()
         {
-            InvalidateAvailability();
-            InvalidateNavigation();
+            NotifySelectableStateChanged();
         }
 
         private void OnTransformParentChanged()
         {
-            _cachedCanvas = null;
+            _cachedSortingCanvas = null;
             _cachedHierarchyDepth = -1;
-            InvalidateNavigation();
+            NotifySelectableStateChanged();
         }
 
         /// <summary>
-        /// 注册运行时控件。烘焙控件在 Awake 时已经进入同一列表，重复注册返回 false。
+        /// 注册运行时控件。rememberable 只控制跨关闭/遮挡边界的记忆；当前导航期间始终记录选择。
+        /// 烘焙控件已进入同一列表，重复注册返回 false。
         /// </summary>
         public bool RegisterSelectable(Selectable selectable, bool rememberable = false)
         {
             InitializeLists();
-            if (selectable == null || !Owns(selectable.gameObject) || _owned.Contains(selectable))
+            if (selectable == null || !Owns(selectable.gameObject) || !_owned.Add(selectable))
             {
                 return false;
             }
 
-            AddEntry(selectable, rememberable);
-            _runtimeSelectableCount++;
+            _selectables.Add(selectable);
+            _baseline.Add(selectable.navigation);
+            _rememberable.Add(rememberable);
             if (_navigationSuppressed)
             {
                 SetSelectableSuppressed(selectable);
             }
 
-            InvalidateAvailability();
-            InvalidateNavigation();
+            NotifySelectableStateChanged();
             return true;
         }
 
@@ -186,7 +153,7 @@ namespace AlicizaX.UI.UXNavigation
 
             InitializeLists();
             int index = _selectables.IndexOf(selectable);
-            if (index < 0 || index < _bakedCount)
+            if (index < _bakedCount)
             {
                 return false;
             }
@@ -197,14 +164,12 @@ namespace AlicizaX.UI.UXNavigation
             }
 
             RemoveEntryAt(index);
-            _runtimeSelectableCount--;
             if (ReferenceEquals(_lastSelected, selectable))
             {
                 _lastSelected = null;
             }
 
-            InvalidateAvailability();
-            InvalidateNavigation();
+            NotifySelectableStateChanged();
             return true;
         }
 
@@ -219,21 +184,15 @@ namespace AlicizaX.UI.UXNavigation
             return _cachedHierarchyDepth;
         }
 
-        internal bool Owns(GameObject target)
+        private bool Owns(GameObject target)
         {
-            if (target == null)
-            {
-                return false;
-            }
-
-            UXNavigationScope nearestScope = target.GetComponentInParent<UXNavigationScope>(true);
+            NavigationScope nearestScope = target.GetComponentInParent<NavigationScope>(true);
             return ReferenceEquals(nearestScope, this);
         }
 
         internal Selectable GetPreferredSelectable()
         {
-            RecalculateAvailability();
-            if (_rememberLastSelection && IsSelectableValid(_lastSelected))
+            if (IsSelectableValid(_lastSelected))
             {
                 return _lastSelected;
             }
@@ -243,37 +202,22 @@ namespace AlicizaX.UI.UXNavigation
                 return _defaultSelectable;
             }
 
-            return _firstAvailableSelectable;
+            return FindFirstAvailableSelectable();
         }
 
-        internal bool HasAvailableSelectable()
+        internal Selectable GetOwnedSelectable(GameObject selectedObject)
         {
-            RecalculateAvailability();
-            if (IsSelectableValid(_defaultSelectable))
-            {
-                return true;
-            }
-
-            return _availableSelectableCount > 0;
+            Selectable selectable = _lastSelected != null && _lastSelected.gameObject == selectedObject
+                ? _lastSelected : GetSelectableFromObject(selectedObject);
+            return _owned.Contains(selectable) ? selectable : null;
         }
 
-        internal void RecordSelection(GameObject selectedObject)
-        {
-            if (!_rememberLastSelection || selectedObject == null)
-            {
-                return;
-            }
+        internal void RecordSelection(Selectable selectable) => _lastSelected = selectable;
 
-            Selectable selectable = GetSelectableFromObject(selectedObject);
-            if (IsSelectableValid(selectable) && IsSelectableRememberable(selectable))
-            {
-                _lastSelected = selectable;
-            }
-        }
-
-        internal bool IsOwnedAndUsable(GameObject selectedObject)
+        internal void EndNavigation()
         {
-            return IsSelectableValid(GetSelectableFromObject(selectedObject));
+            if (!_rememberLastSelection || !IsSelectableRememberable(_lastSelected))
+                _lastSelected = null;
         }
 
         internal void SetNavigationSuppressed(bool suppressed)
@@ -283,20 +227,13 @@ namespace AlicizaX.UI.UXNavigation
                 return;
             }
 
-            InitializeLists();
-            if (suppressed)
-            {
-                CaptureBaseline();
-            }
-
             _navigationSuppressed = suppressed;
             ApplySuppression(suppressed);
         }
 
         public void NotifySelectableStateChanged()
         {
-            InvalidateAvailability();
-            InvalidateNavigation();
+            UXInput.Navigation?.Refresh();
         }
 
         public void OnBeforeSerialize()
@@ -336,15 +273,6 @@ namespace AlicizaX.UI.UXNavigation
             }
 
             _bakedCount = _selectables.Count;
-            _availabilityDirty = true;
-        }
-
-        private void AddEntry(Selectable selectable, bool rememberable)
-        {
-            _owned.Add(selectable);
-            _selectables.Add(selectable);
-            _baseline.Add(selectable.navigation);
-            _rememberable.Add(rememberable);
         }
 
         private void RemoveEntryAt(int index)
@@ -353,18 +281,6 @@ namespace AlicizaX.UI.UXNavigation
             _selectables.RemoveAt(index);
             _baseline.RemoveAt(index);
             _rememberable.RemoveAt(index);
-        }
-
-        private void CaptureBaseline()
-        {
-            for (int i = 0; i < _selectables.Count; i++)
-            {
-                Selectable selectable = _selectables[i];
-                if (selectable != null)
-                {
-                    _baseline[i] = selectable.navigation;
-                }
-            }
         }
 
         private void ApplySuppression(bool suppressed)
@@ -379,6 +295,7 @@ namespace AlicizaX.UI.UXNavigation
 
                 if (suppressed)
                 {
+                    _baseline[i] = selectable.navigation;
                     SetSelectableSuppressed(selectable);
                 }
                 else
@@ -390,24 +307,14 @@ namespace AlicizaX.UI.UXNavigation
 
         private static void SetSelectableSuppressed(Selectable selectable)
         {
-            if (selectable == null)
-            {
-                return;
-            }
-
             Navigation navigation = selectable.navigation;
             navigation.mode = Navigation.Mode.None;
             selectable.navigation = navigation;
         }
 
-        private bool ContainsSelectable(Selectable selectable)
-        {
-            return selectable != null && _owned.Contains(selectable);
-        }
-
         private bool IsSelectableValid(Selectable selectable)
         {
-            return IsSelectableUsable(selectable) && ContainsSelectable(selectable);
+            return IsSelectableUsable(selectable) && _owned.Contains(selectable);
         }
 
         private bool IsSelectableRememberable(Selectable selectable)
@@ -421,69 +328,33 @@ namespace AlicizaX.UI.UXNavigation
             return index >= 0 && _rememberable[index];
         }
 
-        private void InvalidateAvailability()
+        private Selectable FindFirstAvailableSelectable()
         {
-            _availabilityDirty = true;
-        }
-
-        private void RecalculateAvailability()
-        {
-            if (!_availabilityDirty)
-            {
-                return;
-            }
-
-#if UNITY_EDITOR
-            if (!_missingUnregisterReported)
-            {
-                for (int i = _bakedCount; i < _selectables.Count; i++)
-                {
-                    if (_selectables[i] == null)
-                    {
-                        _missingUnregisterReported = true;
-                        Debug.Assert(
-                            false,
-                            "A runtime Selectable was destroyed without UnregisterSelectable. Call UnregisterSelectable before destroying it.",
-                            this);
-                        break;
-                    }
-                }
-            }
-#endif
-
-            _availableSelectableCount = 0;
-            _firstAvailableSelectable = null;
             for (int i = 0; i < _selectables.Count; i++)
             {
                 Selectable selectable = _selectables[i];
-                if (!IsSelectableUsable(selectable))
+#if UNITY_EDITOR
+                if (selectable == null && i >= _bakedCount && !_missingUnregisterReported)
                 {
-                    continue;
+                    _missingUnregisterReported = true;
+                    Debug.Assert(false,
+                        "A runtime Selectable was destroyed without UnregisterSelectable. Call UnregisterSelectable before destroying it.",
+                        this);
                 }
-
-                if (_firstAvailableSelectable == null)
-                {
-                    _firstAvailableSelectable = selectable;
-                }
-
-                _availableSelectableCount++;
+#endif
+                if (IsSelectableUsable(selectable)) return selectable;
             }
 
-            _availabilityDirty = false;
+            return null;
         }
 
-        private static bool IsSelectableUsable(Selectable selectable)
+        internal static bool IsSelectableUsable(Selectable selectable)
         {
             return selectable != null && selectable.IsActive() && selectable.IsInteractable();
         }
 
         private static Selectable GetSelectableFromObject(GameObject selectedObject)
         {
-            if (selectedObject == null)
-            {
-                return null;
-            }
-
             return selectedObject.TryGetComponent(out Selectable selectable)
                 ? selectable
                 : selectedObject.GetComponentInParent<Selectable>();
@@ -492,45 +363,28 @@ namespace AlicizaX.UI.UXNavigation
         private void SubscribeHolderEvents()
         {
             UIHolderObjectBase holder = Holder;
-            if (holder == null || _subscribedHolder == holder)
+            if (holder == null)
             {
                 return;
             }
 
-            UnsubscribeHolderEvents();
-            holder.OnWindowAfterShowEvent += OnWindowShown;
-            holder.OnWindowAfterClosedEvent += OnWindowClosed;
+            holder.OnShowEvent += NotifySelectableStateChanged;
+            holder.OnCloseEvent += NotifySelectableStateChanged;
             _subscribedHolder = holder;
         }
 
         private void UnsubscribeHolderEvents()
         {
-            if (_subscribedHolder == null)
+            if (ReferenceEquals(_subscribedHolder, null))
             {
                 return;
             }
 
-            _subscribedHolder.OnWindowAfterShowEvent -= OnWindowShown;
-            _subscribedHolder.OnWindowAfterClosedEvent -= OnWindowClosed;
+            _subscribedHolder.OnShowEvent -= NotifySelectableStateChanged;
+            _subscribedHolder.OnCloseEvent -= NotifySelectableStateChanged;
             _subscribedHolder = null;
         }
 
-        private void OnWindowShown()
-        {
-            InvalidateAvailability();
-            UXNavigationSystem.RequestRefresh(true);
-        }
-
-        private void OnWindowClosed()
-        {
-            InvalidateAvailability();
-            UXNavigationSystem.RequestRefresh(true);
-        }
-
-        private void InvalidateNavigation()
-        {
-            UXNavigationSystem.InvalidateNavigation();
-        }
     }
 }
 #endif

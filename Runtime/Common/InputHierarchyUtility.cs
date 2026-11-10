@@ -7,6 +7,14 @@ using UnityEngine;
 /// </summary>
 internal static class InputHierarchyUtility
 {
+    /// <summary>找到实际决定绘制顺序的 Canvas，嵌套 Canvas 默认继承父级排序。</summary>
+    internal static Canvas ResolveSortingCanvas(Canvas canvas)
+    {
+        while (canvas != null && !canvas.isRootCanvas && !canvas.overrideSorting)
+            canvas = canvas.transform.parent.GetComponentInParent<Canvas>(true);
+        return canvas;
+    }
+
     /// <summary>
     /// 计算 Transform 在层级中的深度（根节点为 1）。
     /// </summary>

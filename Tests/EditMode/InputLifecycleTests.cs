@@ -11,12 +11,11 @@ namespace AlicizaX.Input.Tests
     public sealed class InputLifecycleTests : InputDeviceTestBase
     {
         [Test]
-        public void ShutdownRestoresNavigationDefaults()
+        public void ShutdownReleasesNavigationInstance()
         {
-            AlicizaX.UI.UXNavigation.UXNavigationSystem.SetRequireSelection(false, true);
+            UXInput.Navigation.SetRequireSelection(false, true);
             UXInput.Shutdown();
-            Assert.That(AlicizaX.UI.UXNavigation.UXNavigationSystem.GamepadRequireSelection, Is.True);
-            Assert.That(AlicizaX.UI.UXNavigation.UXNavigationSystem.KeyboardRequireSelection, Is.False);
+            Assert.That(UXInput.Navigation, Is.Null);
         }
 
         [Test]
@@ -71,6 +70,7 @@ namespace AlicizaX.Input.Tests
             File.WriteAllText(BindingFilePath, "{ invalid json");
             Assert.Catch(() => UXInput.Initialize(Asset, null, BindingFilePath));
             Assert.That(UXInput.IsInitialized, Is.False);
+            Assert.That(UXInput.Navigation, Is.Null);
             Assert.That(Action("Jump").enabled, Is.False);
             Assert.That(UXInput.Reader.Actions, Is.Null);
             Assert.That(UXInput.Rebind.Actions, Is.Null);

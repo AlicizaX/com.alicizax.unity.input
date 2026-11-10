@@ -2,7 +2,6 @@
 using AlicizaX;
 using UnityEngine;
 using UnityEngine.InputSystem;
-using UnityEngine.UI;
 
 [AddComponentMenu("Input/Input Service")]
 [DefaultExecutionOrder(-30000)]
@@ -38,21 +37,34 @@ public sealed class InputService : MonoServiceBehaviour
         }
 
         UXInput.Initialize(actions, glyphDatabase);
-        UXHotkeySystem.Initialize(actions);
         DontDestroyOnLoad(gameObject);
     }
 
     protected override void OnDestroy()
     {
-        UXHotkeySystem.Shutdown();
         UXInput.Shutdown();
         base.OnDestroy();
+    }
+
+    private void OnApplicationFocus(bool hasFocus)
+    {
+        if (!hasFocus)
+        {
+            UXInput.Hotkey?.ResetPressTargets();
+        }
+    }
+
+    private void OnApplicationPause(bool pauseStatus)
+    {
+        if (pauseStatus)
+        {
+            UXInput.Hotkey?.ResetPressTargets();
+        }
     }
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
     private static void ResetForPlayMode()
     {
-        UXHotkeySystem.Shutdown();
         UXInput.Shutdown();
     }
 }

@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using AlicizaX.UI.Runtime;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -11,6 +12,56 @@ using UnityEngine.UI;
 
 namespace AlicizaX.Input.Tests
 {
+    /// <summary>为输入测试绑定逻辑视图；框架生命周期本身由 UI 测试验证。</summary>
+    public static class InputTestViews
+    {
+        private sealed class TestHolder : UIHolderObjectBase { }
+        private sealed class TestWindow : UIWindow<UIHolderObjectBase> { }
+        private sealed class TestWidget : UIWidget<UIHolderObjectBase> { }
+        private const BindingFlags Fields = BindingFlags.Instance | BindingFlags.NonPublic;
+        private static readonly FieldInfo OwnerField = typeof(UIHolderObjectBase).GetField("_owner", Fields);
+        private static readonly FieldInfo HolderField = typeof(UIBase).GetField("_holder", Fields);
+        private static readonly FieldInfo StateField = typeof(UIBase).GetField("_state", Fields);
+        private static readonly FieldInfo ParentField = typeof(UIWidget).GetField("Parent", Fields);
+        private static readonly List<UIHolderObjectBase> Holders = new();
+
+        public static UIBase Bind(GameObject root, UIBase parent = null, UIState state = UIState.Opened) =>
+            Bind(root.AddComponent<TestHolder>(), parent, state);
+
+        public static UIBase Bind(UIHolderObjectBase holder, UIBase parent = null, UIState state = UIState.Opened)
+        {
+            UIBase view = parent == null ? new TestWindow() : new TestWidget();
+            if (parent != null) ParentField.SetValue(view, parent);
+            HolderField.SetValue(view, holder);
+            StateField.SetValue(view, state);
+            OwnerField.SetValue(holder, view);
+            Holders.Add(holder);
+            return view;
+        }
+
+        public static void SetState(UIBase view, UIState state) => StateField.SetValue(view, state);
+
+        public static void SetState(UIHolderObjectBase holder, UIState state) =>
+            SetState((UIBase)OwnerField.GetValue(holder), state);
+
+        public static UIHolderObjectBase GetHolder(this UIBase view) => (UIHolderObjectBase)HolderField.GetValue(view);
+
+        public static void Raise(UIHolderObjectBase holder, string eventName) =>
+            ((Action)typeof(UIHolderObjectBase).GetField(eventName, Fields).GetValue(holder))?.Invoke();
+
+        public static void UnbindAll()
+        {
+            foreach (UIHolderObjectBase holder in Holders) OwnerField.SetValue(holder, null);
+            Holders.Clear();
+        }
+
+        public static void Unbind(UIHolderObjectBase holder)
+        {
+            OwnerField.SetValue(holder, null);
+            Holders.Remove(holder);
+        }
+    }
+
     /// <summary>
     /// 测试共用的输入资源工厂。所有资产都在测试内创建，不依赖工程资源。
     /// </summary>
@@ -43,6 +94,22 @@ namespace AlicizaX.Input.Tests
                 UnityEngine.Object.DestroyImmediate(value);
             }
         }
+
+        /// <summary>
+        /// 移除运行时创建的测试设备，只保留编辑器原生设备。测试之间共享同一个 InputSystem，
+        /// 不清理会把上一次会话的设备（尤其是手柄）带进下一次初始化，改变默认输入 Profile。
+        /// </summary>
+        public static void RemoveTestDevices()
+        {
+            for (int i = InputSystem.devices.Count - 1; i >= 0; i--)
+            {
+                InputDevice device = InputSystem.devices[i];
+                if (string.IsNullOrEmpty(device.description.deviceClass))
+                {
+                    InputSystem.RemoveDevice(device);
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -71,18 +138,17 @@ namespace AlicizaX.Input.Tests
         {
             EnableEditModePlayerUpdates();
 
+            InputTestAssets.RemoveTestDevices();
             Assert.That(UXInput.IsInitialized, Is.False, "the previous test must close its input session");
             BindingFilePath = Path.Combine(Path.GetTempPath(), "AlicizaXInputTests", Guid.NewGuid().ToString("N"), "input_bindings.json");
             Asset = InputTestAssets.Create();
             ConfigureAsset(Asset);
             UXInput.Initialize(Asset, null, BindingFilePath);
-            UXHotkeySystem.Initialize(Asset);
         }
 
         [TearDown]
         public void BaseTearDown()
         {
-            UXHotkeySystem.Shutdown();
             UXInput.Shutdown();
             for (int i = 0; i < _devices.Count; i++)
             {

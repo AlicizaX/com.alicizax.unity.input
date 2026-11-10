@@ -67,12 +67,6 @@ public static class InputProfileCatalog
             NoFallbacks,
             new[] { "gamepad", "controller" }),
         new InputProfileInfo(
-            InputWatch.InputProfile.GenericJoystick,
-            "GenericJoystick",
-            "Generic Joystick",
-            new[] { "GenericGamepad" },
-            new[] { "joystick", "gamepad", "controller" }),
-        new InputProfileInfo(
             InputWatch.InputProfile.Xbox,
             "Xbox",
             "Xbox",

@@ -203,6 +203,7 @@ namespace AlicizaX.Input.Tests
             var root = new GameObject("allocation-hotkey", typeof(Canvas));
             root.layer = UIComponent.UIShowLayer;
             var holder = root.AddComponent<TestHolder>();
+            InputTestViews.Bind(holder);
             var target = new GameObject("submit-target");
             target.SetActive(false);
             target.transform.SetParent(root.transform, false);
@@ -215,15 +216,16 @@ namespace AlicizaX.Input.Tests
             try
             {
                 target.SetActive(true);
+                InputHotkey hotkey = UXInput.Hotkey;
                 yield return InputAllocationCapture.Measure("hotkey-first-register", () =>
-                    UXHotkeySystem.RegisterHotkey(trigger, holder, reference, EHotkeyPressType.Performed));
+                    hotkey.RegisterHotkey(trigger, holder, reference, EHotkeyPressType.Performed));
                 Assert.That(trigger.IsRegistered, Is.True);
-                var scopes = (Dictionary<UIHolderObjectBase, HotkeyScope>)typeof(UXHotkeySystem)
-                    .GetField("Scopes", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null);
+                var scopes = (Dictionary<UIHolderObjectBase, HotkeyScope>)typeof(InputHotkey)
+                    .GetField("_scopesByHolder", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(hotkey);
                 var scope = scopes[holder];
                 var dispatch = (Action<HotkeyScope, UIHolderObjectBase, InputAction, EHotkeyPressType>)
-                    typeof(UXHotkeySystem).GetMethod("TryDispatchToScopeChain", BindingFlags.Static | BindingFlags.NonPublic)
-                        .CreateDelegate(typeof(Action<HotkeyScope, UIHolderObjectBase, InputAction, EHotkeyPressType>));
+                    typeof(InputHotkey).GetMethod("TryDispatchToScopeChain", BindingFlags.Instance | BindingFlags.NonPublic)
+                        .CreateDelegate(typeof(Action<HotkeyScope, UIHolderObjectBase, InputAction, EHotkeyPressType>), hotkey);
                 yield return InputAllocationCapture.Measure("hotkey-first-submit", () =>
                     dispatch(scope, holder, action, EHotkeyPressType.Performed));
                 Assert.That(submit.Count, Is.EqualTo(1));
@@ -236,14 +238,15 @@ namespace AlicizaX.Input.Tests
                 {
                     for (int i = 0; i < 20; i++)
                     {
-                        UXHotkeySystem.UnregisterHotkey(trigger);
-                        UXHotkeySystem.RegisterHotkey(trigger, holder, reference, EHotkeyPressType.Performed);
+                        hotkey.UnregisterHotkey(trigger);
+                        hotkey.RegisterHotkey(trigger, holder, reference, EHotkeyPressType.Performed);
                     }
                 });
             }
             finally
             {
                 Object.DestroyImmediate(eventObject);
+                InputTestViews.UnbindAll();
                 Object.DestroyImmediate(root);
                 Object.DestroyImmediate(reference);
             }

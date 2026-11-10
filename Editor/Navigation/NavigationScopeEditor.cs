@@ -11,8 +11,8 @@ using UnityEngine.UIElements;
 namespace AlicizaX.UI.UXNavigation
 {
 
-    [CustomEditor(typeof(UXNavigationScope))]
-    public sealed class UXNavigationScopeEditor : AlicizaUIEditor
+    [CustomEditor(typeof(NavigationScope))]
+    public sealed class NavigationScopeEditor : AlicizaUIEditor
     {
         private static readonly Color SelectedRowColor = new Color(0.173f, 0.365f, 0.529f, 0.32f);
 
@@ -52,7 +52,7 @@ namespace AlicizaX.UI.UXNavigation
             {
                 AlicizaPanel unsupportedPanel = AlicizaEditorUI.CreatePanel(null);
                 unsupportedPanel.Body.Add(AlicizaEditorUI.CreateHint(
-                    "Multi-object editing is not supported for UX Navigation Scope."));
+                    "Multi-object editing is not supported for Navigation Scope."));
                 root.Add(unsupportedPanel);
                 return;
             }
@@ -64,7 +64,7 @@ namespace AlicizaX.UI.UXNavigation
                 || _navigable == null
                 || _blockLowerScopes == null)
             {
-                root.Add(AlicizaEditorUI.CreateEmptyState("UX Navigation Scope 属性不可用。"));
+                root.Add(AlicizaEditorUI.CreateEmptyState("Navigation Scope 属性不可用。"));
                 return;
             }
 
@@ -226,7 +226,7 @@ namespace AlicizaX.UI.UXNavigation
 
             AddPolicyRow(
                 section.Body, "Remember", _rememberLastSelection,
-                "重新打开时优先恢复上次选中的控件。");
+                "关闭重开或被更高层接管后恢复最近选中项。同一导航域内切换设备始终保留最近选中项。");
             AddPolicyRow(
                 section.Body, "Focus", _navigable,
                 "开启：本域可以成为手柄/键盘焦点。关闭：本域不接收选中。");
@@ -491,7 +491,7 @@ namespace AlicizaX.UI.UXNavigation
                 return;
             }
 
-            UXNavigationScope scope = target as UXNavigationScope;
+            NavigationScope scope = target as NavigationScope;
             if (scope == null)
             {
                 return;
@@ -506,14 +506,13 @@ namespace AlicizaX.UI.UXNavigation
             {
                 Selectable selectable = allSelectables[i];
                 if (selectable != null
-                    && selectable.GetComponentInParent<UXNavigationScope>(true) == scope
+                    && selectable.GetComponentInParent<NavigationScope>(true) == scope
                     && HasValidNavigation(selectable))
                 {
                     ownedSelectables.Add(selectable);
                 }
             }
 
-            ownedSelectables.Sort(CompareSiblingPath);
             _bakedSelectables.arraySize = ownedSelectables.Count;
             for (int i = 0; i < ownedSelectables.Count; i++)
             {
@@ -538,17 +537,13 @@ namespace AlicizaX.UI.UXNavigation
                 return;
             }
 
-            UXNavigationScope scope = target as UXNavigationScope;
+            NavigationScope scope = target as NavigationScope;
             if (scope == null)
             {
                 return;
             }
 
-            UIHolderObjectBase foundHolder = scope.GetComponent<UIHolderObjectBase>();
-            if (foundHolder == null)
-            {
-                foundHolder = scope.GetComponentInParent<UIHolderObjectBase>(true);
-            }
+            UIHolderObjectBase foundHolder = scope.GetComponentInParent<UIHolderObjectBase>(true);
 
             if (foundHolder == null)
             {
@@ -655,11 +650,6 @@ namespace AlicizaX.UI.UXNavigation
 
         private static bool HasValidNavigation(Selectable selectable)
         {
-            if (selectable == null)
-            {
-                return false;
-            }
-
             Navigation navigation = selectable.navigation;
             if (navigation.mode == Navigation.Mode.None)
             {
@@ -677,60 +667,6 @@ namespace AlicizaX.UI.UXNavigation
                    || navigation.selectOnRight != null;
         }
 
-        private static int CompareSiblingPath(Selectable left, Selectable right)
-        {
-            if (left == right)
-            {
-                return 0;
-            }
-
-            Transform leftTransform = left != null ? left.transform : null;
-            Transform rightTransform = right != null ? right.transform : null;
-            return CompareSiblingPath(leftTransform, rightTransform);
-        }
-
-        private static int CompareSiblingPath(Transform left, Transform right)
-        {
-            if (left == right)
-            {
-                return 0;
-            }
-
-            if (left == null)
-            {
-                return -1;
-            }
-
-            if (right == null)
-            {
-                return 1;
-            }
-
-            int leftDepth = InputHierarchyUtility.GetDepth(left);
-            int rightDepth = InputHierarchyUtility.GetDepth(right);
-            Transform leftCursor = left;
-            Transform rightCursor = right;
-
-            while (leftDepth > rightDepth)
-            {
-                leftCursor = leftCursor.parent;
-                leftDepth--;
-            }
-
-            while (rightDepth > leftDepth)
-            {
-                rightCursor = rightCursor.parent;
-                rightDepth--;
-            }
-
-            while (leftCursor.parent != rightCursor.parent)
-            {
-                leftCursor = leftCursor.parent;
-                rightCursor = rightCursor.parent;
-            }
-
-            return leftCursor.GetSiblingIndex().CompareTo(rightCursor.GetSiblingIndex());
-        }
     }
 }
 #endif

@@ -9,43 +9,33 @@ public sealed class InputWatch
 {
     private const float AxisActivationThreshold = 0.5f;
     private const float StickActivationThreshold = 0.25f;
-    private const string KeyboardMouseScheme = "KeyboardMouse";
-    private const string TouchScheme = "Touch";
-    private const string GamepadScheme = "Gamepad";
-    private const string JoystickScheme = "Joystick";
-    private const string UnknownScheme = "Unknown";
     private const string DefaultKeyboardMouseName = "Keyboard&Mouse";
     private const string DefaultTouchName = "Touchscreen";
 
     private InputAction _anyInputAction;
     private readonly Dictionary<InputDevice, InputContext> _contexts = new Dictionary<InputDevice, InputContext>(8);
-    private readonly InputDeviceType _deviceType;
     private readonly InputContext _defaultContext;
     private InputDevice _currentDevice;
     private string _currentProfileId;
 
     internal InputWatch()
     {
-        _deviceType = ResolveDeviceType();
-        _defaultContext = IsMobilePlatform() ? InputContext.Touch(_deviceType) : InputContext.KeyboardMouse(_deviceType);
+        _defaultContext = IsMobilePlatform() ? InputContext.Touch() : InputContext.KeyboardMouse();
         Current = _defaultContext;
         _currentProfileId = InputProfileCatalog.GetId(Current.InputProfile);
     }
 
     public InputContext Current { get; private set; }
 
-    public InputDeviceType CurrentDeviceType => Current.DeviceType;
     public InputType CurrentInputType => Current.InputType;
     public InputProfile CurrentInputProfile => Current.InputProfile;
-    public string CurrentControlScheme => Current.ControlScheme;
     public string CurrentProfileId => _currentProfileId;
-    public bool IsNavigationInput => Current.InputType == InputType.Gamepad || Current.InputType == InputType.Joystick;
+    public bool IsNavigationInput => Current.InputType == InputType.Gamepad;
     public bool IsTouchInput => Current.InputType == InputType.Touch;
     public bool IsKeyboardMouseInput => Current.InputType == InputType.KeyboardMouse;
 
     public event Action<InputContext> OnContextChanged;
     public event Action<InputContext> OnInputActivity;
-    public event Action<InputDeviceType> OnDeviceTypeChanged;
     public event Action<InputType> OnInputTypeChanged;
     public event Action<InputProfile> OnInputProfileChanged;
 
@@ -73,7 +63,6 @@ public sealed class InputWatch
         _currentProfileId = InputProfileCatalog.GetId(Current.InputProfile);
         OnContextChanged = null;
         OnInputActivity = null;
-        OnDeviceTypeChanged = null;
         OnInputTypeChanged = null;
         OnInputProfileChanged = null;
     }
@@ -92,19 +81,17 @@ public sealed class InputWatch
         InputType inputType = ResolveInputType(device);
         if (inputType == InputType.KeyboardMouse)
         {
-            return InputContext.KeyboardMouse(_deviceType, device);
+            return InputContext.KeyboardMouse(device);
         }
 
         if (inputType == InputType.Touch)
         {
-            return InputContext.Touch(_deviceType, device);
+            return InputContext.Touch(device);
         }
 
         return new InputContext(
-            _deviceType,
             inputType,
             ResolveInputProfile(device, inputType),
-            ResolveControlScheme(inputType),
             device.deviceId,
             GetDeviceName(device));
     }
@@ -214,11 +201,6 @@ public sealed class InputWatch
         _currentProfileId = InputProfileCatalog.GetId(context.InputProfile);
         OnContextChanged?.Invoke(context);
 
-        if (forceEmit || previousContext.DeviceType != context.DeviceType)
-        {
-            OnDeviceTypeChanged?.Invoke(context.DeviceType);
-        }
-
         if (forceEmit || previousContext.InputType != context.InputType)
         {
             OnInputTypeChanged?.Invoke(context.InputType);
@@ -267,7 +249,6 @@ public sealed class InputWatch
 
     private bool TryFindPreferredDevice(out InputDevice device)
     {
-        InputDevice fallbackJoystick = null;
         var devices = InputSystem.devices;
         for (int i = 0; i < devices.Count; i++)
         {
@@ -277,38 +258,10 @@ public sealed class InputWatch
                 device = candidate;
                 return true;
             }
-
-            if (fallbackJoystick == null && candidate is Joystick)
-            {
-                fallbackJoystick = candidate;
-            }
         }
 
-        device = fallbackJoystick;
-        return fallbackJoystick != null;
-    }
-
-    private InputDeviceType ResolveDeviceType()
-    {
-#if UNITY_SWITCH
-        return InputDeviceType.Switch;
-#elif UNITY_PS4 || UNITY_PS5 || UNITY_XBOXONE || UNITY_GAMECORE
-        return InputDeviceType.Console;
-#elif UNITY_ANDROID || UNITY_IOS
-        return IsTabletPlatform() ? InputDeviceType.Tablet : InputDeviceType.Phone;
-#else
-        if (IsSteamDeckPlatform())
-        {
-            return InputDeviceType.SteamDeck;
-        }
-
-        if (Application.isMobilePlatform)
-        {
-            return IsTabletPlatform() ? InputDeviceType.Tablet : InputDeviceType.Phone;
-        }
-
-        return InputDeviceType.PC;
-#endif
+        device = null;
+        return false;
     }
 
     private bool ShouldPromoteAddedDevice(InputDevice device)
@@ -323,7 +276,7 @@ public sealed class InputWatch
             return true;
         }
 
-        return (IsGamepadLike(device) || device is Joystick) &&
+        return IsGamepadLike(device) &&
                (Current.InputType == InputType.KeyboardMouse || Current.InputType == InputType.Touch);
     }
 
@@ -344,29 +297,7 @@ public sealed class InputWatch
             return InputType.Gamepad;
         }
 
-        if (device is Joystick)
-        {
-            return InputType.Joystick;
-        }
-
         return InputType.Unknown;
-    }
-
-    private string ResolveControlScheme(InputType inputType)
-    {
-        switch (inputType)
-        {
-            case InputType.Touch:
-                return TouchScheme;
-            case InputType.KeyboardMouse:
-                return KeyboardMouseScheme;
-            case InputType.Gamepad:
-                return GamepadScheme;
-            case InputType.Joystick:
-                return JoystickScheme;
-            default:
-                return UnknownScheme;
-        }
     }
 
     private bool IsMeaningfulControl(InputControl control)
@@ -402,7 +333,7 @@ public sealed class InputWatch
 
     private bool IsGamepadLike(InputDevice device)
     {
-        if (device is Gamepad)
+        if (device is Gamepad || device is Joystick)
         {
             return true;
         }
@@ -432,7 +363,6 @@ public sealed class InputWatch
             case InputType.Touch:
                 return InputProfile.Touch;
             case InputType.Gamepad:
-            case InputType.Joystick:
                 break;
             default:
                 return InputProfile.Unknown;
@@ -467,7 +397,7 @@ public sealed class InputWatch
             return InputProfile.Switch;
         }
 
-        return inputType == InputType.Joystick ? InputProfile.GenericJoystick : InputProfile.GenericGamepad;
+        return InputProfile.GenericGamepad;
     }
 
     private bool DeviceTextContains(InputDevice device, string token)
@@ -494,48 +424,12 @@ public sealed class InputWatch
 #endif
     }
 
-    private bool IsTabletPlatform()
-    {
-#if UNITY_IOS || UNITY_ANDROID
-        float minSide = Mathf.Min(Screen.width, Screen.height);
-        float dpi = Screen.dpi > 0f ? Screen.dpi : 160f;
-        return minSide / dpi >= 3.6f;
-#else
-        return false;
-#endif
-    }
-
-    private bool IsSteamDeckPlatform()
-    {
-#if UNITY_STANDALONE_LINUX
-        string deviceModel = SystemInfo.deviceModel;
-        string deviceName = SystemInfo.deviceName;
-        return InputStringUtility.ContainsIgnoreCase(deviceModel, "Steam Deck") ||
-               InputStringUtility.ContainsIgnoreCase(deviceName, "Steam Deck");
-#else
-        return false;
-#endif
-    }
-
-    public enum InputDeviceType : byte
-    {
-        Unknown = 0,
-        Phone = 1,
-        Tablet = 2,
-        PC = 3,
-        Console = 4,
-        Handheld = 5,
-        SteamDeck = 6,
-        Switch = 7
-    }
-
     public enum InputType : byte
     {
         Unknown = 0,
         Touch = 1,
         KeyboardMouse = 2,
-        Gamepad = 3,
-        Joystick = 4
+        Gamepad = 3
     }
 
     public enum InputProfile : byte
@@ -544,12 +438,11 @@ public sealed class InputWatch
         Touch = 1,
         KeyboardMouse = 2,
         GenericGamepad = 3,
-        GenericJoystick = 4,
-        Xbox = 5,
-        PlayStation = 6,
-        Switch = 7,
-        SteamDeck = 8,
-        SteamController = 9
+        Xbox = 4,
+        PlayStation = 5,
+        Switch = 6,
+        SteamDeck = 7,
+        SteamController = 8
     }
 
     /// <summary>
@@ -557,90 +450,56 @@ public sealed class InputWatch
     /// </summary>
     public readonly struct InputContext : IEquatable<InputContext>
     {
-        public readonly InputDeviceType DeviceType;
         public readonly InputType InputType;
         public readonly InputProfile InputProfile;
-        public readonly string ControlScheme;
         public readonly int DeviceId;
         public readonly string DeviceName;
 
-        public bool IsValid => DeviceType != InputDeviceType.Unknown && InputType != InputType.Unknown;
+        public bool IsValid => InputType != InputType.Unknown;
 
         public InputContext(
-            InputDeviceType deviceType,
             InputType inputType,
             InputProfile inputProfile,
-            string controlScheme,
             int deviceId,
             string deviceName)
         {
-            DeviceType = deviceType;
             InputType = inputType;
             InputProfile = inputProfile;
-            ControlScheme = controlScheme ?? string.Empty;
             DeviceId = deviceId;
             DeviceName = deviceName ?? string.Empty;
         }
 
-        public static InputContext KeyboardMouse(InputDeviceType deviceType)
-        {
-            return new InputContext(
-                deviceType,
-                InputType.KeyboardMouse,
-                InputProfile.KeyboardMouse,
-                KeyboardMouseScheme,
-                -1,
-                DefaultKeyboardMouseName);
-        }
-
-        public static InputContext KeyboardMouse(InputDeviceType deviceType, InputDevice device)
+        public static InputContext KeyboardMouse(InputDevice device = null)
         {
             string deviceName = device == null || string.IsNullOrWhiteSpace(device.displayName)
                 ? DefaultKeyboardMouseName
                 : device.displayName;
 
             return new InputContext(
-                deviceType,
                 InputType.KeyboardMouse,
                 InputProfile.KeyboardMouse,
-                KeyboardMouseScheme,
                 device != null ? device.deviceId : -1,
                 deviceName);
         }
 
-        public static InputContext Touch(InputDeviceType deviceType)
-        {
-            return new InputContext(
-                deviceType,
-                InputType.Touch,
-                InputProfile.Touch,
-                TouchScheme,
-                -1,
-                DefaultTouchName);
-        }
-
-        public static InputContext Touch(InputDeviceType deviceType, InputDevice device)
+        public static InputContext Touch(InputDevice device = null)
         {
             string deviceName = device == null || string.IsNullOrWhiteSpace(device.displayName)
                 ? DefaultTouchName
                 : device.displayName;
 
             return new InputContext(
-                deviceType,
                 InputType.Touch,
                 InputProfile.Touch,
-                TouchScheme,
                 device != null ? device.deviceId : -1,
                 deviceName);
         }
 
         public bool Equals(InputContext other)
         {
-            return DeviceType == other.DeviceType
-                   && InputType == other.InputType
+            return InputType == other.InputType
                    && InputProfile == other.InputProfile
                    && DeviceId == other.DeviceId
-                   && string.Equals(ControlScheme, other.ControlScheme, StringComparison.Ordinal)
                    && string.Equals(DeviceName, other.DeviceName, StringComparison.Ordinal);
         }
 
@@ -653,11 +512,9 @@ public sealed class InputWatch
         {
             unchecked
             {
-                int hash = (int)DeviceType;
-                hash = (hash * 397) ^ (int)InputType;
+                int hash = (int)InputType;
                 hash = (hash * 397) ^ (int)InputProfile;
                 hash = (hash * 397) ^ DeviceId;
-                hash = (hash * 397) ^ (ControlScheme != null ? ControlScheme.GetHashCode() : 0);
                 hash = (hash * 397) ^ (DeviceName != null ? DeviceName.GetHashCode() : 0);
                 return hash;
             }

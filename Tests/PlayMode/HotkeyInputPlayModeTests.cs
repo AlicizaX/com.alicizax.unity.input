@@ -30,6 +30,7 @@ namespace AlicizaX.Input.Tests
         private InputActionReference _reference;
         private Keyboard _keyboard;
         private CountingTrigger _trigger;
+        private UIBase _view;
         private string _bindingFilePath;
 
         [SetUp]
@@ -37,9 +38,10 @@ namespace AlicizaX.Input.Tests
         {
             Assert.That(UXInput.IsInitialized, Is.False);
             Assert.That(AppServices.IsAvailable, Is.False);
-            UXHotkeySystem.Shutdown();
+            InputTestAssets.RemoveTestDevices();
             _serviceRoot = new GameObject("hotkey-service-root", typeof(TestServiceRoot));
             _holderObject = new GameObject("hotkey-holder", typeof(Canvas), typeof(TestHolder));
+            _view = InputTestViews.Bind(_holderObject.GetComponent<TestHolder>());
             _holderObject.layer = UIComponent.UIShowLayer;
             AppServices.Register<IUIService>(new FocusService(_holderObject.GetComponent<TestHolder>()));
 
@@ -48,9 +50,12 @@ namespace AlicizaX.Input.Tests
             InputAction action = map.AddAction("Back", InputActionType.Button, "<Keyboard>/escape");
             map.AddAction("Confirm", InputActionType.Button, "<Keyboard>/enter");
             _reference = InputActionReference.Create(action);
-            UXHotkeySystem.Initialize(_asset);
             _keyboard = InputSystem.AddDevice<Keyboard>();
             _bindingFilePath = Path.Combine(Path.GetTempPath(), "hotkey-" + Guid.NewGuid().ToString("N") + ".json");
+            UXInput.Initialize(_asset, null, _bindingFilePath);
+
+            // 注册发生在动作禁用状态下，验证注册本身不依赖动作启用。
+            _asset.Disable();
 
             var triggerObject = new GameObject("hotkey-trigger");
             triggerObject.SetActive(false);
@@ -66,11 +71,11 @@ namespace AlicizaX.Input.Tests
         [TearDown]
         public void TearDown()
         {
-            UXHotkeySystem.Shutdown();
             UXInput.Shutdown();
+            InputTestViews.UnbindAll();
             Object.DestroyImmediate(_holderObject);
             Object.DestroyImmediate(_serviceRoot);
-            if (_keyboard != null && _keyboard.added) InputSystem.RemoveDevice(_keyboard);
+            InputTestAssets.RemoveTestDevices();
             Object.DestroyImmediate(_reference);
             Object.DestroyImmediate(_asset);
         }
@@ -86,7 +91,6 @@ namespace AlicizaX.Input.Tests
             _asset.Enable();
             Tap(Key.Escape);
             Assert.That(_trigger.Count, Is.EqualTo(1));
-            Assert.That(UXInput.IsInitialized, Is.False);
 
             _asset.Disable();
             Tap(Key.Escape);
@@ -109,13 +113,12 @@ namespace AlicizaX.Input.Tests
             Tap(Key.Space);
             Assert.That(_trigger.Count, Is.EqualTo(2));
             Assert.That(_trigger.RegisteredAction, Is.SameAs(_reference.action));
-            Assert.That(UXInput.IsInitialized, Is.False);
         }
 
         [Test]
         public void RebindUpdatesHotkeyWithoutReregistering()
         {
-            UXInput.Initialize(_asset, null, _bindingFilePath);
+            _asset.Enable();
             Tap(Key.Escape);
             Assert.That(_trigger.Count, Is.EqualTo(1));
 
@@ -129,19 +132,22 @@ namespace AlicizaX.Input.Tests
         }
 
         [Test]
-        public void InputShutdownKeepsRegistrationAndSameAssetCanResume()
+        public void ShutdownReleasesRegistrationAndSameAssetCanResume()
         {
-            UXInput.Initialize(_asset, null, _bindingFilePath);
+            _asset.Enable();
             Tap(Key.Escape);
             Assert.That(_trigger.Count, Is.EqualTo(1));
 
             UXInput.Shutdown();
-            Assert.That(_trigger.IsRegistered, Is.True);
+            Assert.That(_trigger.IsRegistered, Is.False);
+            Assert.That(UXInput.Hotkey, Is.Null);
             Assert.That(_reference.action.enabled, Is.False);
             Tap(Key.Escape);
             Assert.That(_trigger.Count, Is.EqualTo(1));
 
-            _asset.Enable();
+            UXInput.Initialize(_asset, null, _bindingFilePath);
+            _trigger.gameObject.SetActive(false);
+            _trigger.gameObject.SetActive(true);
             Tap(Key.Escape);
             Assert.That(_trigger.Count, Is.EqualTo(2));
         }
@@ -190,7 +196,7 @@ namespace AlicizaX.Input.Tests
             _asset.Enable();
             Tap(Key.Escape);
             Assert.That(_trigger.Count, Is.EqualTo(1));
-            UXHotkeySystem.Shutdown();
+            UXInput.Hotkey.Shutdown();
             Assert.That(_trigger.IsRegistered, Is.False);
             Assert.That(_reference.action.enabled, Is.True);
             Tap(Key.Escape);
@@ -205,6 +211,48 @@ namespace AlicizaX.Input.Tests
             InputSystem.Update();
         }
 
+        [Test]
+        public void WidgetHotkeysFollowLogicalStateWithoutSelectableFocus()
+        {
+            _asset.Enable();
+            var first = WidgetTrigger(UIState.Opened, out UIBase a);
+            var second = WidgetTrigger(UIState.Closed, out UIBase b);
+            Tap(Key.Escape);
+            Assert.That(first.Count, Is.EqualTo(1));
+            Assert.That(second.Count, Is.Zero);
+            Assert.That(_trigger.Count, Is.Zero);
+
+            InputTestViews.SetState(a, UIState.Closing);
+            InputTestViews.Raise(a.GetHolder(), nameof(UIHolderObjectBase.OnCloseEvent));
+            InputTestViews.SetState(b, UIState.Opening);
+            InputTestViews.Raise(b.GetHolder(), nameof(UIHolderObjectBase.OnShowEvent));
+            Tap(Key.Escape);
+            Assert.That(first.Count, Is.EqualTo(1));
+            Assert.That(second.Count, Is.EqualTo(1));
+            Assert.That(a.Visible, Is.True);
+
+            InputTestViews.SetState(_view, UIState.Closing);
+            InputTestViews.Raise(_view.GetHolder(), nameof(UIHolderObjectBase.OnCloseEvent));
+            Tap(Key.Escape);
+            Assert.That(second.Count, Is.EqualTo(1));
+            Assert.That(_trigger.Count, Is.Zero);
+        }
+
+        private CountingTrigger WidgetTrigger(UIState state, out UIBase view)
+        {
+            var root = new GameObject("hotkey-widget", typeof(RectTransform), typeof(CanvasGroup));
+            root.transform.SetParent(_holderObject.transform, false);
+            root.SetActive(false);
+            var holder = root.AddComponent<TestHolder>();
+            view = InputTestViews.Bind(holder, _view, state);
+            var trigger = root.AddComponent<CountingTrigger>();
+            trigger.HotkeyAction = _reference;
+            typeof(HotkeyComponentBase).GetField("_holder", BindingFlags.Instance | BindingFlags.NonPublic)
+                .SetValue(trigger, holder);
+            root.SetActive(true);
+            return trigger;
+        }
+
         // Only focus selection is exercised here; window loading and navigation belong to UI tests.
         private sealed class FocusService : ServiceBase, IUIService
         {
@@ -217,33 +265,33 @@ namespace AlicizaX.Input.Tests
                 return holder != null;
             }
 
-            public void Initialize(Transform root, bool isOrthographic) => throw new NotSupportedException();
+            public bool Initialize(Transform root, bool isOrthographic) => throw new NotSupportedException();
             public Camera UICamera => throw new NotSupportedException();
             public Transform UICanvasRoot => throw new NotSupportedException();
             public RectTransform GetLayer(UILayer layer) => throw new NotSupportedException();
-            public UniTask<T> ShowUI<T>(params object[] userDatas) where T : UIWindow => throw new NotSupportedException();
-            public UniTask<T> ShowUI<T>(CancellationToken cancellationToken, params object[] userDatas) where T : UIWindow => throw new NotSupportedException();
-            public UniTask<UIWindow> ShowUI(string type, params object[] userDatas) => throw new NotSupportedException();
-            public UniTask<UIWindow> ShowUI(string type, CancellationToken cancellationToken, params object[] userDatas) => throw new NotSupportedException();
-            public UniTask<UIWindow> ShowUI(RuntimeTypeHandle handle, params object[] userDatas) => throw new NotSupportedException();
-            public UniTask<UIWindow> ShowUI(RuntimeTypeHandle handle, CancellationToken cancellationToken, params object[] userDatas) => throw new NotSupportedException();
-            public T ShowUISync<T>(params object[] userDatas) where T : UIWindow => throw new NotSupportedException();
-            public UniTask CloseUI<T>(bool force = false, bool skipTransition = false) where T : UIWindow => throw new NotSupportedException();
-            public UniTask CloseUI(RuntimeTypeHandle handle, bool force = false, bool skipTransition = false) => throw new NotSupportedException();
+            public UniTask<T> ShowUI<T>(object userData = null) where T : UIWindow => throw new NotSupportedException();
+            public UniTask<T> ShowUI<T>(CancellationToken cancellationToken, object userData = null) where T : UIWindow => throw new NotSupportedException();
+            public UniTask<UIWindow> ShowUI(string type, object userData = null) => throw new NotSupportedException();
+            public UniTask<UIWindow> ShowUI(string type, CancellationToken cancellationToken, object userData = null) => throw new NotSupportedException();
+            public UniTask<UIWindow> ShowUI(RuntimeTypeHandle handle, object userData = null) => throw new NotSupportedException();
+            public UniTask<UIWindow> ShowUI(RuntimeTypeHandle handle, CancellationToken cancellationToken, object userData = null) => throw new NotSupportedException();
+            public T ShowUISync<T>(object userData = null) where T : UIWindow => throw new NotSupportedException();
+            public UIViewTransition CloseUI<T>(bool force = false, bool skipTransition = false) where T : UIWindow => throw new NotSupportedException();
+            public UIViewTransition CloseUI(RuntimeTypeHandle handle, bool force = false, bool skipTransition = false) => throw new NotSupportedException();
             public bool IsOpen<T>() where T : UIWindow => throw new NotSupportedException();
             public bool IsOpen(RuntimeTypeHandle handle) => throw new NotSupportedException();
             public UniTask<bool> TryCloseTopAsync(Predicate<RuntimeTypeHandle> predicate, bool force = false) => throw new NotSupportedException();
             public T GetUI<T>() where T : UIWindow => throw new NotSupportedException();
-            public UniTask<UIRouteResult> NavigateTo<T>(params object[] args) where T : UIWindow => throw new NotSupportedException();
-            public UniTask<UIRouteResult> Replace<T>(params object[] args) where T : UIWindow => throw new NotSupportedException();
+            public UniTask<UIRouteResult> NavigateTo<T>(object userData = null) where T : UIWindow => throw new NotSupportedException();
+            public UniTask<UIRouteResult> Replace<T>(object userData = null) where T : UIWindow => throw new NotSupportedException();
             public UniTask<UIRouteResult> Back() => throw new NotSupportedException();
             public UniTask<UIRouteResult> CloseCurrent(bool force = false) => throw new NotSupportedException();
             public UniTask<UIRouteResult> BackToRoot() => throw new NotSupportedException();
-            public UniTask<UIRouteResult> BackTo<T>(bool openIfMissing = true, params object[] args) where T : UIWindow => throw new NotSupportedException();
-            public UniTask<UIRouteResult> ResetTo<T>(params object[] args) where T : UIWindow => throw new NotSupportedException();
+            public UniTask<UIRouteResult> BackTo<T>(bool openIfMissing = true, object userData = null) where T : UIWindow => throw new NotSupportedException();
+            public UniTask<UIRouteResult> ResetTo<T>(object userData = null) where T : UIWindow => throw new NotSupportedException();
             public UniTask<UIRouteResult> ResetHistory() => throw new NotSupportedException();
-            public UniTask<UIRouteResult> SyncFromCurrentUI(Type currentPageType, params object[] args) => throw new NotSupportedException();
-            public UniTask<UIRouteResult> SyncFromCurrentUI(RuntimeTypeHandle handle, params object[] args) => throw new NotSupportedException();
+            public UniTask<UIRouteResult> SyncFromCurrentUI(Type currentPageType, object userData = null) => throw new NotSupportedException();
+            public UniTask<UIRouteResult> SyncFromCurrentUI(RuntimeTypeHandle handle, object userData = null) => throw new NotSupportedException();
             public bool CanBack => throw new NotSupportedException();
             public Type Current => throw new NotSupportedException();
             public UIRouteEntry CurrentEntry => throw new NotSupportedException();

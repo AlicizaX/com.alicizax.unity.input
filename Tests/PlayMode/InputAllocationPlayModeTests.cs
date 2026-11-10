@@ -1,10 +1,12 @@
 #if INPUTSYSTEM_SUPPORT && UNITY_EDITOR
 using System;
 using System.Collections;
+using System.Reflection;
 using AlicizaX.UI.Runtime;
 using AlicizaX.UI.UXNavigation;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.LowLevel;
 using UnityEngine.TestTools;
@@ -15,6 +17,7 @@ namespace AlicizaX.Input.Tests
     [TestFixture]
     public sealed class InputAllocationPlayModeTests : InputDeviceTestBase
     {
+        private sealed class TestHolder : UIHolderObjectBase { }
         private static object _allocationSink;
 
         [UnityTest]
@@ -369,19 +372,44 @@ namespace AlicizaX.Input.Tests
         [UnityTest]
         public IEnumerator NavigationRefreshAllocatesZeroBytes()
         {
-
+            EventSystem previousEventSystem = EventSystem.current;
+            var eventRoot = new GameObject("alloc-navigation-events", typeof(EventSystem));
+            var eventSystem = eventRoot.GetComponent<EventSystem>();
+            EventSystem.current = eventSystem;
+            UXInput.Navigation.SetRequireSelection(true, true);
             var root = new GameObject("alloc-navigation-scope", typeof(RectTransform), typeof(Canvas));
+            root.SetActive(false);
             try
             {
                 root.layer = UIComponent.UIShowLayer;
-                var scope = root.AddComponent<UXNavigationScope>();
+                var scope = root.AddComponent<NavigationScope>();
+                SetScope(scope, "_holder", InputTestViews.Bind(root).GetHolder());
+                root.SetActive(true);
                 var buttonObject = new GameObject("alloc-navigation-button", typeof(RectTransform), typeof(Button));
                 buttonObject.transform.SetParent(root.transform, false);
                 var button = buttonObject.GetComponent<Button>();
 
-                Assert.That(scope.RegisterSelectable(button, false), Is.True);
                 scope.DefaultSelectable = button;
-                UXNavigationSystem.RequestRefresh(true);
+                bool registered = false;
+                yield return InputAllocationCapture.Measure(
+                    "navigation-first-register",
+                    () => registered = scope.RegisterSelectable(button, false));
+                Assert.That(registered, Is.True);
+                Assert.That(eventSystem.currentSelectedGameObject, Is.SameAs(buttonObject));
+
+                Button growthButton = null;
+                for (int i = 1; i <= 16; i++)
+                {
+                    var child = new GameObject("alloc-navigation-growth", typeof(RectTransform), typeof(Button));
+                    child.transform.SetParent(root.transform, false);
+                    growthButton = child.GetComponent<Button>();
+                    if (i < 16) Assert.That(scope.RegisterSelectable(growthButton), Is.True);
+                }
+                yield return InputAllocationCapture.Measure(
+                    "navigation-register-growth",
+                    () => registered = scope.RegisterSelectable(growthButton));
+                Assert.That(registered, Is.True);
+                Assert.That(scope.RuntimeSelectableCount, Is.EqualTo(17));
 
                 long bytes = 0;
                 yield return InputAllocationCapture.Measure(
@@ -390,23 +418,125 @@ namespace AlicizaX.Input.Tests
                     {
                         for (int i = 0; i < 2000; i++)
                         {
-                            UXNavigationSystem.RequestRefresh(false);
+                            UXInput.Navigation.Refresh();
                         }
                     },
                     (measuredBytes, _) => bytes = measuredBytes);
 
                 Assert.That(bytes, Is.Zero, "steady-state navigation refresh must not allocate");
+
+                yield return InputAllocationCapture.Measure(
+                    "navigation-focus-recovery",
+                    () =>
+                    {
+                        for (int i = 0; i < 200; i++)
+                        {
+                            eventSystem.SetSelectedGameObject(null);
+                            UXInput.Navigation.Refresh();
+                        }
+                    },
+                    (measuredBytes, _) => bytes = measuredBytes);
+                Assert.That(bytes, Is.Zero, "steady-state selection recovery must not allocate");
             }
             finally
             {
+                InputTestViews.UnbindAll();
                 if (root != null)
                 {
                     UnityEngine.Object.DestroyImmediate(root);
                 }
 
                 UXInput.Shutdown();
+                UnityEngine.Object.DestroyImmediate(eventRoot);
+                if (previousEventSystem != null) EventSystem.current = previousEventSystem;
             }
         }
+
+        [UnityTest]
+        public IEnumerator NavigationMultipleScopesAndParentChainAllocateZeroBytes()
+        {
+            EventSystem previous = EventSystem.current;
+            var events = new GameObject("alloc-navigation-events", typeof(EventSystem));
+            EventSystem.current = events.GetComponent<EventSystem>();
+            var root = new GameObject("alloc-navigation-window", typeof(RectTransform), typeof(Canvas), typeof(TestHolder));
+            var scopes = new NavigationScope[16];
+            try
+            {
+                UXInput.Navigation.SetRequireSelection(true, true);
+                UIBase view = InputTestViews.Bind(root.GetComponent<TestHolder>());
+                for (int i = 0; i < 3; i++)
+                {
+                    var widget = new GameObject("alloc-navigation-widget", typeof(RectTransform), typeof(TestHolder));
+                    widget.transform.SetParent(view.GetHolder().transform, false);
+                    view = InputTestViews.Bind(widget.GetComponent<TestHolder>(), view);
+                }
+
+                for (int i = 0; i < scopes.Length; i++)
+                {
+                    var panel = new GameObject("alloc-navigation-panel", typeof(RectTransform));
+                    panel.SetActive(false);
+                    panel.transform.SetParent(view.GetHolder().transform, false);
+                    var scope = panel.AddComponent<NavigationScope>();
+                    SetScope(scope, "_holder", view.GetHolder());
+                    SetScope(scope, "_blockLowerScopes", false);
+                    for (int j = 0; j < 32; j++)
+                    {
+                        var child = new GameObject("alloc-navigation-candidate", typeof(RectTransform), typeof(Button));
+                        child.transform.SetParent(panel.transform, false);
+                        var button = child.GetComponent<Button>();
+                        button.interactable = j == 31;
+                        scope.RegisterSelectable(button);
+                    }
+                    panel.SetActive(true);
+                    scopes[i] = scope;
+                }
+                Assert.That(EventSystem.current.currentSelectedGameObject, Is.Not.Null);
+                yield return InputAllocationCapture.Measure("navigation-16-scopes-32-candidates", () =>
+                {
+                    for (int i = 0; i < 2000; i++) UXInput.Navigation.Refresh();
+                }, (bytes, allocations) =>
+                {
+                    Assert.That(bytes, Is.Zero);
+                    Assert.That(allocations, Is.Zero);
+                });
+
+                var overlay = new GameObject("alloc-navigation-blocker", typeof(RectTransform), typeof(Canvas));
+                overlay.transform.SetParent(root.transform, false);
+                var canvas = overlay.GetComponent<Canvas>();
+                canvas.overrideSorting = true;
+                canvas.sortingOrder = 100;
+                overlay.SetActive(false);
+                var blocker = overlay.AddComponent<NavigationScope>();
+                SetScope(blocker, "_holder", root.GetComponent<TestHolder>());
+                blocker.Navigable = false;
+                overlay.SetActive(true);
+                Assert.That(canvas.overrideSorting, Is.True);
+                Assert.That(blocker.IsAlive, Is.True);
+                Assert.That(blocker.SortingCanvas, Is.SameAs(canvas));
+                Assert.That(canvas.sortingOrder, Is.EqualTo(100));
+                foreach (var scope in scopes) Assert.That(scope.NavigationSuppressed, Is.True);
+                Assert.That(EventSystem.current.currentSelectedGameObject, Is.Null);
+                yield return InputAllocationCapture.Measure("navigation-blocked-16-scopes", () =>
+                {
+                    for (int i = 0; i < 2000; i++) UXInput.Navigation.Refresh();
+                }, (bytes, allocations) =>
+                {
+                    Assert.That(bytes, Is.Zero);
+                    Assert.That(allocations, Is.Zero);
+                });
+            }
+            finally
+            {
+                UXInput.Shutdown();
+                InputTestViews.UnbindAll();
+                UnityEngine.Object.DestroyImmediate(root);
+                UnityEngine.Object.DestroyImmediate(events);
+                if (previous != null) EventSystem.current = previous;
+            }
+        }
+
+        private static void SetScope(NavigationScope scope, string name, object value) =>
+            typeof(NavigationScope).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic).SetValue(scope, value);
     }
 }
 #endif
