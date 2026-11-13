@@ -2,212 +2,215 @@
 using System;
 using UnityEngine.InputSystem;
 
-/// <summary>
-/// 输入包唯一的绑定选择实现。显示图标、重绑定、组合部分控制解析共用同一套候选枚举与匹配规则。
-/// </summary>
-internal static class InputBindingResolver
+namespace AlicizaX.Input
 {
     /// <summary>
-    /// 为交互式重绑定选择符合指定部分、分组或限定路径的绑定。
+    /// 输入包唯一的绑定选择实现。显示图标、重绑定、组合部分控制解析共用同一套候选枚举与匹配规则。
     /// </summary>
-    internal static int SelectForRebind(
-        InputAction action,
-        string compositePartName,
-        string bindingGroup,
-        string requiredControlPath)
+    internal static class InputBindingResolver
     {
-        if (action == null)
+        /// <summary>
+        /// 为交互式重绑定选择符合指定部分、分组或限定路径的绑定。
+        /// </summary>
+        internal static int SelectForRebind(
+            InputAction action,
+            string compositePartName,
+            string bindingGroup,
+            string requiredControlPath)
         {
-            return -1;
-        }
-
-        bool searchingForCompositePart = !string.IsNullOrEmpty(compositePartName);
-
-        for (int i = 0; i < action.bindings.Count; i++)
-        {
-            InputBinding binding = action.bindings[i];
-
-            if (searchingForCompositePart)
+            if (action == null)
             {
-                if (!binding.isPartOfComposite
-                    || !string.Equals(binding.name, compositePartName, StringComparison.OrdinalIgnoreCase))
+                return -1;
+            }
+
+            bool searchingForCompositePart = !string.IsNullOrEmpty(compositePartName);
+
+            for (int i = 0; i < action.bindings.Count; i++)
+            {
+                InputBinding binding = action.bindings[i];
+
+                if (searchingForCompositePart)
+                {
+                    if (!binding.isPartOfComposite
+                        || !string.Equals(binding.name, compositePartName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+                }
+                else if (binding.isComposite)
                 {
                     continue;
                 }
-            }
-            else if (binding.isComposite)
-            {
-                continue;
+
+                if (MatchesRebindTarget(binding, bindingGroup, requiredControlPath))
+                {
+                    return i;
+                }
             }
 
-            if (MatchesRebindTarget(binding, bindingGroup, requiredControlPath))
-            {
-                return i;
-            }
-        }
-
-        return -1;
-    }
-
-    /// <summary>
-    /// 为图标/显示文本选择当前 Profile 下最匹配的绑定。
-    /// </summary>
-    internal static int SelectForDisplay(
-        InputAction action,
-        string compositePartName,
-        InputWatch.InputProfile profile,
-        string[] bindingGroupHints)
-    {
-        if (action == null)
-        {
             return -1;
         }
 
-        bool requireCompositePart = !string.IsNullOrEmpty(compositePartName);
-        int bestScore = int.MinValue;
-        int bestBindingIndex = -1;
-
-        for (int i = 0; i < action.bindings.Count; i++)
+        /// <summary>
+        /// 为图标/显示文本选择当前 Profile 下最匹配的绑定。
+        /// </summary>
+        internal static int SelectForDisplay(
+            InputAction action,
+            string compositePartName,
+            InputWatch.InputProfile profile,
+            string[] bindingGroupHints)
         {
-            InputBinding candidate = action.bindings[i];
-            if (candidate.isComposite)
+            if (action == null)
             {
-                continue;
+                return -1;
             }
 
-            if (requireCompositePart)
+            bool requireCompositePart = !string.IsNullOrEmpty(compositePartName);
+            int bestScore = int.MinValue;
+            int bestBindingIndex = -1;
+
+            for (int i = 0; i < action.bindings.Count; i++)
             {
-                if (!candidate.isPartOfComposite
-                    || !string.Equals(candidate.name, compositePartName, StringComparison.OrdinalIgnoreCase))
+                InputBinding candidate = action.bindings[i];
+                if (candidate.isComposite)
                 {
                     continue;
                 }
-            }
-            else if (candidate.isPartOfComposite)
-            {
-                continue;
+
+                if (requireCompositePart)
+                {
+                    if (!candidate.isPartOfComposite
+                        || !string.Equals(candidate.name, compositePartName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+                }
+                else if (candidate.isPartOfComposite)
+                {
+                    continue;
+                }
+
+                string path = candidate.effectivePath;
+                if (string.IsNullOrWhiteSpace(path))
+                {
+                    continue;
+                }
+
+                int score = Score(candidate, path, profile, bindingGroupHints);
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestBindingIndex = i;
+                }
             }
 
-            string path = candidate.effectivePath;
-            if (string.IsNullOrWhiteSpace(path))
-            {
-                continue;
-            }
-
-            int score = Score(candidate, path, profile, bindingGroupHints);
-            if (score > bestScore)
-            {
-                bestScore = score;
-                bestBindingIndex = i;
-            }
+            return bestScore > int.MinValue ? bestBindingIndex : -1;
         }
 
-        return bestScore > int.MinValue ? bestBindingIndex : -1;
-    }
-
-    /// <summary>
-    /// 查找组合绑定部分的绑定索引。返回 -1 表示不存在该部分。
-    /// </summary>
-    internal static int FindCompositePartBindingIndex(InputAction action, string compositePartName)
-    {
-        if (action == null || string.IsNullOrWhiteSpace(compositePartName))
+        /// <summary>
+        /// 查找组合绑定部分的绑定索引。返回 -1 表示不存在该部分。
+        /// </summary>
+        internal static int FindCompositePartBindingIndex(InputAction action, string compositePartName)
         {
+            if (action == null || string.IsNullOrWhiteSpace(compositePartName))
+            {
+                return -1;
+            }
+
+            for (int i = 0; i < action.bindings.Count; i++)
+            {
+                InputBinding binding = action.bindings[i];
+                if (binding.isPartOfComposite
+                    && string.Equals(binding.name, compositePartName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return i;
+                }
+            }
+
             return -1;
         }
 
-        for (int i = 0; i < action.bindings.Count; i++)
+        private static int Score(
+            in InputBinding binding,
+            string path,
+            InputWatch.InputProfile profile,
+            string[] bindingGroupHints)
         {
-            InputBinding binding = action.bindings[i];
-            if (binding.isPartOfComposite
-                && string.Equals(binding.name, compositePartName, StringComparison.OrdinalIgnoreCase))
+            int score = 0;
+            if (MatchesBindingGroups(binding.groups, bindingGroupHints))
             {
-                return i;
+                score += 100;
             }
+            else if (!string.IsNullOrWhiteSpace(binding.groups))
+            {
+                score -= 20;
+            }
+
+            if (MatchesProfilePath(path, profile))
+            {
+                score += 60;
+            }
+
+            if (!binding.isPartOfComposite)
+            {
+                score += 5;
+            }
+
+            return score;
         }
 
-        return -1;
-    }
-
-    private static int Score(
-        in InputBinding binding,
-        string path,
-        InputWatch.InputProfile profile,
-        string[] bindingGroupHints)
-    {
-        int score = 0;
-        if (MatchesBindingGroups(binding.groups, bindingGroupHints))
+        private static bool MatchesBindingGroups(string groups, string[] hints)
         {
-            score += 100;
-        }
-        else if (!string.IsNullOrWhiteSpace(binding.groups))
-        {
-            score -= 20;
-        }
+            if (string.IsNullOrWhiteSpace(groups) || hints == null)
+            {
+                return false;
+            }
 
-        if (MatchesProfilePath(path, profile))
-        {
-            score += 60;
-        }
+            for (int i = 0; i < hints.Length; i++)
+            {
+                if (InputStringUtility.ContainsGroup(groups, hints[i]))
+                {
+                    return true;
+                }
+            }
 
-        if (!binding.isPartOfComposite)
-        {
-            score += 5;
-        }
-
-        return score;
-    }
-
-    private static bool MatchesBindingGroups(string groups, string[] hints)
-    {
-        if (string.IsNullOrWhiteSpace(groups) || hints == null)
-        {
             return false;
         }
 
-        for (int i = 0; i < hints.Length; i++)
+        private static bool MatchesProfilePath(string path, InputWatch.InputProfile profile)
         {
-            if (InputStringUtility.ContainsGroup(groups, hints[i]))
+            switch (profile)
             {
-                return true;
+                case InputWatch.InputProfile.KeyboardMouse:
+                    return InputStringUtility.StartsWith(path, "<Keyboard>")
+                           || InputStringUtility.StartsWith(path, "<Mouse>");
+                case InputWatch.InputProfile.Touch:
+                    return InputStringUtility.StartsWith(path, "<Touchscreen>")
+                           || InputStringUtility.StartsWith(path, "<Pen>");
+                default:
+                    return InputStringUtility.StartsWith(path, "<Gamepad>")
+                           || InputStringUtility.StartsWith(path, "<Joystick>");
             }
         }
 
-        return false;
-    }
-
-    private static bool MatchesProfilePath(string path, InputWatch.InputProfile profile)
-    {
-        switch (profile)
+        private static bool MatchesRebindTarget(
+            in InputBinding binding,
+            string bindingGroup,
+            string requiredControlPath)
         {
-            case InputWatch.InputProfile.KeyboardMouse:
-                return InputStringUtility.StartsWith(path, "<Keyboard>")
-                       || InputStringUtility.StartsWith(path, "<Mouse>");
-            case InputWatch.InputProfile.Touch:
-                return InputStringUtility.StartsWith(path, "<Touchscreen>")
-                       || InputStringUtility.StartsWith(path, "<Pen>");
-            default:
-                return InputStringUtility.StartsWith(path, "<Gamepad>")
-                       || InputStringUtility.StartsWith(path, "<Joystick>");
-        }
-    }
+            if (!string.IsNullOrEmpty(requiredControlPath))
+            {
+                return InputStringUtility.StartsWith(binding.path, requiredControlPath)
+                       || InputStringUtility.StartsWith(binding.effectivePath, requiredControlPath);
+            }
 
-    private static bool MatchesRebindTarget(
-        in InputBinding binding,
-        string bindingGroup,
-        string requiredControlPath)
-    {
-        if (!string.IsNullOrEmpty(requiredControlPath))
-        {
-            return InputStringUtility.StartsWith(binding.path, requiredControlPath)
-                   || InputStringUtility.StartsWith(binding.effectivePath, requiredControlPath);
-        }
+            if (!string.IsNullOrEmpty(bindingGroup))
+            {
+                return InputStringUtility.ContainsGroup(binding.groups, bindingGroup);
+            }
 
-        if (!string.IsNullOrEmpty(bindingGroup))
-        {
-            return InputStringUtility.ContainsGroup(binding.groups, bindingGroup);
+            return true;
         }
-
-        return true;
     }
 }
 #endif

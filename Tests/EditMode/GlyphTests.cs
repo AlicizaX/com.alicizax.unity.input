@@ -144,8 +144,8 @@ namespace AlicizaX.Input.Tests
         public void DisplayNameAndProfileIdQueriesAreStable()
         {
             AddKeyboard();
-            string firstProfileId = UXInput.Glyph.CurrentProfileId;
-            string secondProfileId = UXInput.Glyph.CurrentProfileId;
+            string firstProfileId = UXInput.Watch.CurrentProfileId;
+            string secondProfileId = UXInput.Watch.CurrentProfileId;
             Assert.That(secondProfileId, Is.SameAs(firstProfileId), "profile id is a cached string");
 
             string firstDisplay = UXInput.Glyph.GetDisplayName("<Keyboard>/space");

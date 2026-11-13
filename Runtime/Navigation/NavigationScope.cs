@@ -1,14 +1,15 @@
 #if INPUTSYSTEM_SUPPORT
-namespace AlicizaX.UI.UXNavigation
-{
-    using System.Collections.Generic;
-    using UnityEngine;
-    using UnityEngine.UI;
-    using AlicizaX.UI.Runtime;
+using System;
+using System.Collections.Generic;
+using AlicizaX.UI.Runtime;
+using UnityEngine;
+using UnityEngine.UI;
 
+namespace AlicizaX.Input
+{
     [DisallowMultipleComponent]
     [AddComponentMenu("UI/Navigation Scope")]
-    public sealed class NavigationScope : MonoBehaviour, UnityEngine.ISerializationCallbackReceiver
+    public sealed class NavigationScope : MonoBehaviour
     {
         [SerializeField, Header("默认选中控件")] private Selectable _defaultSelectable;
 
@@ -19,16 +20,20 @@ namespace AlicizaX.UI.UXNavigation
         [SerializeField, Header("记住上次选中")] private bool _rememberLastSelection = false;
 
         [SerializeField, Header("阻断下层导航域")] private bool _blockLowerScopes = true;
-        [SerializeField, Header("可作为导航焦点")] private bool _navigable = true;
-        [SerializeField, HideInInspector] private bool _hasNavigableField;
 
-        // 烘焙控件与运行时注册控件合并到同一组容器：一份归属集合、一份基线、一份顺序。
-        private readonly List<Selectable> _selectables = new List<Selectable>(16);
-        private readonly List<Navigation> _baseline = new List<Navigation>(16);
-        private readonly List<bool> _rememberable = new List<bool>(16);
+        /// <summary>一个受管控件：归属、抑制前的导航基线、是否允许跨关闭/遮挡记忆，放在同一条记录里。</summary>
+        private struct Entry
+        {
+            public Selectable Selectable;
+            public Navigation Baseline;
+            public bool Rememberable;
+        }
+
+        // 烘焙控件在前（_bakedCount 个），运行时注册的在后；_owned 只做 O(1) 归属判断。
+        private readonly List<Entry> _entries = new List<Entry>(16);
         private readonly HashSet<Selectable> _owned = new HashSet<Selectable>();
 
-        private Canvas _cachedSortingCanvas;
+        private InputSortingCanvas _sortingCanvas;
         private Selectable _lastSelected;
         private bool _navigationSuppressed;
         private int _cachedHierarchyDepth = -1;
@@ -44,8 +49,12 @@ namespace AlicizaX.UI.UXNavigation
         internal bool IsAlive { get; set; }
         internal bool IsNavigationAllowed { get; set; }
         public bool NavigationSuppressed => _navigationSuppressed;
+
+        /// <summary>抑制状态变化时触发（仅在值真正变化时）。参数为新的抑制状态。</summary>
+        public event Action<bool> NavigationSuppressionChanged;
+
         internal int BakedSelectableCount => _bakedSelectables != null ? _bakedSelectables.Length : 0;
-        public int RuntimeSelectableCount => _selectables.Count - _bakedCount;
+        public int RuntimeSelectableCount => _entries.Count - _bakedCount;
 
         public Selectable DefaultSelectable
         {
@@ -61,39 +70,15 @@ namespace AlicizaX.UI.UXNavigation
         public bool RememberLastSelection => _rememberLastSelection;
         public bool BlockLowerScopes => _blockLowerScopes;
 
-        public bool Navigable
-        {
-            get => _navigable;
-            set
-            {
-                if (_navigable == value)
-                {
-                    return;
-                }
-
-                _navigable = value;
-                _hasNavigableField = true;
-                NotifySelectableStateChanged();
-            }
-        }
-
         internal UIHolderObjectBase Holder => _holder;
 
         /// <summary>所属 UI 层级中实际决定排序的 Canvas。</summary>
-        internal Canvas SortingCanvas
-        {
-            get
-            {
-                if (_cachedSortingCanvas == null)
-                    _cachedSortingCanvas = InputHierarchyUtility.ResolveSortingCanvas(GetComponentInParent<Canvas>(true));
-                return _cachedSortingCanvas;
-            }
-        }
+        internal Canvas SortingCanvas => _sortingCanvas.Get(this);
 
         private void OnEnable()
         {
             InitializeLists();
-            _cachedSortingCanvas = null;
+            _sortingCanvas.Invalidate();
             _cachedHierarchyDepth = -1;
             SubscribeHolderEvents();
             UXInput.Navigation?.RegisterScope(this);
@@ -112,7 +97,7 @@ namespace AlicizaX.UI.UXNavigation
 
         private void OnTransformParentChanged()
         {
-            _cachedSortingCanvas = null;
+            _sortingCanvas.Invalidate();
             _cachedHierarchyDepth = -1;
             NotifySelectableStateChanged();
         }
@@ -129,9 +114,7 @@ namespace AlicizaX.UI.UXNavigation
                 return false;
             }
 
-            _selectables.Add(selectable);
-            _baseline.Add(selectable.navigation);
-            _rememberable.Add(rememberable);
+            _entries.Add(new Entry { Selectable = selectable, Baseline = selectable.navigation, Rememberable = rememberable });
             if (_navigationSuppressed)
             {
                 SetSelectableSuppressed(selectable);
@@ -152,7 +135,12 @@ namespace AlicizaX.UI.UXNavigation
             }
 
             InitializeLists();
-            int index = _selectables.IndexOf(selectable);
+            if (!_owned.Contains(selectable))
+            {
+                return false;
+            }
+
+            int index = IndexOf(selectable);
             if (index < _bakedCount)
             {
                 return false;
@@ -160,10 +148,11 @@ namespace AlicizaX.UI.UXNavigation
 
             if (_navigationSuppressed)
             {
-                selectable.navigation = _baseline[index];
+                selectable.navigation = _entries[index].Baseline;
             }
 
-            RemoveEntryAt(index);
+            _owned.Remove(selectable);
+            _entries.RemoveAt(index);
             if (ReferenceEquals(_lastSelected, selectable))
             {
                 _lastSelected = null;
@@ -175,12 +164,11 @@ namespace AlicizaX.UI.UXNavigation
 
         internal int GetHierarchyDepth()
         {
-            if (_cachedHierarchyDepth >= 0)
+            if (_cachedHierarchyDepth < 0)
             {
-                return _cachedHierarchyDepth;
+                _cachedHierarchyDepth = InputHierarchyUtility.GetDepth(transform);
             }
 
-            _cachedHierarchyDepth = InputHierarchyUtility.GetDepth(transform);
             return _cachedHierarchyDepth;
         }
 
@@ -209,7 +197,7 @@ namespace AlicizaX.UI.UXNavigation
         {
             Selectable selectable = _lastSelected != null && _lastSelected.gameObject == selectedObject
                 ? _lastSelected : GetSelectableFromObject(selectedObject);
-            return _owned.Contains(selectable) ? selectable : null;
+            return selectable != null && _owned.Contains(selectable) ? selectable : null;
         }
 
         internal void RecordSelection(Selectable selectable) => _lastSelected = selectable;
@@ -229,28 +217,12 @@ namespace AlicizaX.UI.UXNavigation
 
             _navigationSuppressed = suppressed;
             ApplySuppression(suppressed);
+            NavigationSuppressionChanged?.Invoke(suppressed);
         }
 
         public void NotifySelectableStateChanged()
         {
             UXInput.Navigation?.Refresh();
-        }
-
-        public void OnBeforeSerialize()
-        {
-            _hasNavigableField = true;
-        }
-
-        public void OnAfterDeserialize()
-        {
-            if (_hasNavigableField)
-            {
-                return;
-            }
-
-            // 旧资产没有该字段，默认值 false 会把域设为不可导航；迁移为旧版本的隐性默认 true。
-            _navigable = true;
-            _hasNavigableField = true;
         }
 
         private void InitializeLists()
@@ -266,41 +238,45 @@ namespace AlicizaX.UI.UXNavigation
                 Selectable selectable = _bakedSelectables[i];
                 if (selectable != null && _owned.Add(selectable))
                 {
-                    _selectables.Add(selectable);
-                    _baseline.Add(selectable.navigation);
-                    _rememberable.Add(true);
+                    _entries.Add(new Entry { Selectable = selectable, Baseline = selectable.navigation, Rememberable = true });
                 }
             }
 
-            _bakedCount = _selectables.Count;
+            _bakedCount = _entries.Count;
         }
 
-        private void RemoveEntryAt(int index)
+        private int IndexOf(Selectable selectable)
         {
-            _owned.Remove(_selectables[index]);
-            _selectables.RemoveAt(index);
-            _baseline.RemoveAt(index);
-            _rememberable.RemoveAt(index);
+            for (int i = 0; i < _entries.Count; i++)
+            {
+                if (ReferenceEquals(_entries[i].Selectable, selectable))
+                {
+                    return i;
+                }
+            }
+
+            return -1;
         }
 
         private void ApplySuppression(bool suppressed)
         {
-            for (int i = 0; i < _selectables.Count; i++)
+            for (int i = 0; i < _entries.Count; i++)
             {
-                Selectable selectable = _selectables[i];
-                if (selectable == null)
+                Entry entry = _entries[i];
+                if (entry.Selectable == null)
                 {
                     continue;
                 }
 
                 if (suppressed)
                 {
-                    _baseline[i] = selectable.navigation;
-                    SetSelectableSuppressed(selectable);
+                    entry.Baseline = entry.Selectable.navigation;
+                    _entries[i] = entry;
+                    SetSelectableSuppressed(entry.Selectable);
                 }
                 else
                 {
-                    selectable.navigation = _baseline[i];
+                    entry.Selectable.navigation = entry.Baseline;
                 }
             }
         }
@@ -319,20 +295,20 @@ namespace AlicizaX.UI.UXNavigation
 
         private bool IsSelectableRememberable(Selectable selectable)
         {
-            if (selectable == null)
+            if (selectable == null || !_owned.Contains(selectable))
             {
                 return false;
             }
 
-            int index = _selectables.IndexOf(selectable);
-            return index >= 0 && _rememberable[index];
+            int index = IndexOf(selectable);
+            return index >= 0 && _entries[index].Rememberable;
         }
 
         private Selectable FindFirstAvailableSelectable()
         {
-            for (int i = 0; i < _selectables.Count; i++)
+            for (int i = 0; i < _entries.Count; i++)
             {
-                Selectable selectable = _selectables[i];
+                Selectable selectable = _entries[i].Selectable;
 #if UNITY_EDITOR
                 if (selectable == null && i >= _bakedCount && !_missingUnregisterReported)
                 {
@@ -384,7 +360,6 @@ namespace AlicizaX.UI.UXNavigation
             _subscribedHolder.OnCloseEvent -= NotifySelectableStateChanged;
             _subscribedHolder = null;
         }
-
     }
 }
 #endif

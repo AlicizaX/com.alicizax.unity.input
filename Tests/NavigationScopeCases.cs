@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using AlicizaX.UI.Runtime;
-using AlicizaX.UI.UXNavigation;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -55,15 +54,13 @@ namespace AlicizaX.Input.Tests
         protected GameObject Keep(GameObject obj) { objects.Add(obj); return obj; }
 
         protected static int ScopeCount => UXInput.Navigation.ScopeCount;
-        private static T ReadInstance<T>(object target, string field) =>
-            (T)target.GetType().GetField(field, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(target);
         protected static void Set(object target, string field, object value) =>
             target.GetType().GetField(field, BindingFlags.Instance | BindingFlags.NonPublic).SetValue(target, value);
         protected static void InvokeScope(NavigationScope scope, string name) =>
             typeof(NavigationScope).GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic).Invoke(scope, null);
         private static void Refresh() => UXInput.Navigation.Refresh();
 
-        protected NavigationScope Scope(int order, bool block = true, bool navigable = true)
+        protected NavigationScope Scope(int order, bool block = true)
         {
             var root = Keep(new GameObject("navigation-scope", typeof(RectTransform), typeof(Canvas)));
             root.SetActive(false);
@@ -72,7 +69,6 @@ namespace AlicizaX.Input.Tests
             var scope = root.AddComponent<NavigationScope>();
             Set(scope, "_holder", InputTestViews.Bind(root).GetHolder());
             Set(scope, "_blockLowerScopes", block);
-            scope.Navigable = navigable;
             root.SetActive(true);
             if (!Application.isPlaying)
             {
@@ -382,9 +378,28 @@ namespace AlicizaX.Input.Tests
         }
 
         [Test]
-        public void NonNavigableBlockerDoesNotHideFocusableScopeAboveIt()
+        public void SuppressionChangedEventFiresOnlyOnActualChange()
         {
-            var lowerBlocker = Scope(0, navigable: false);
+            var lower = Scope(0);
+            AddButton(lower);
+            var changes = new List<bool>();
+            lower.NavigationSuppressionChanged += changes.Add;
+
+            var higher = Scope(10);
+            AddButton(higher);
+            Refresh();
+            Assert.That(changes, Is.EqualTo(new[] { true }), "被压制时同步触发一次，重复刷新不重复触发");
+
+            higher.gameObject.SetActive(false);
+            Refresh();
+            Refresh();
+            Assert.That(changes, Is.EqualTo(new[] { true, false }));
+        }
+
+        [Test]
+        public void EmptyBlockerDoesNotHideFocusableScopeAboveIt()
+        {
+            var lowerBlocker = Scope(0);
             var higher = Scope(10, block: false);
             var button = AddButton(higher);
             Assert.That(lowerBlocker.NavigationSuppressed, Is.True);
@@ -393,11 +408,11 @@ namespace AlicizaX.Input.Tests
         }
 
         [Test]
-        public void NonNavigableBlockerAboveCurrentScopeClearsSelection()
+        public void EmptyBlockerAboveCurrentScopeClearsSelection()
         {
             var lower = Scope(0);
             AddButton(lower);
-            Scope(10, navigable: false);
+            Scope(10);
             Refresh();
             Assert.That(lower.NavigationSuppressed, Is.True);
             Assert.That(eventSystem.currentSelectedGameObject, Is.Null);
@@ -675,6 +690,42 @@ namespace AlicizaX.Input.Tests
         }
 
         [Test]
+        public void SameSortingOrderPrefersLaterShownScopeOverDeeperOne()
+        {
+            var first = Scope(0, false);
+            AddButton(first);
+            var parent = Keep(new GameObject("navigation-deep-parent"));
+            first.transform.SetParent(parent.transform, false);
+            var second = Scope(0, false);
+            var secondButton = AddButton(second);
+
+            Refresh();
+
+            Assert.That(first.GetHierarchyDepth(), Is.GreaterThan(second.GetHierarchyDepth()));
+            Assert.That(eventSystem.currentSelectedGameObject, Is.SameAs(secondButton.gameObject),
+                "same Canvas order: the later shown scope wins, depth is only the last tie-break");
+        }
+
+        [Test]
+        public void SortingCanvasLookupToleratesScopeWithoutCanvas()
+        {
+            var root = Keep(new GameObject("navigation-no-canvas", typeof(RectTransform)));
+            root.SetActive(false);
+            var scope = root.AddComponent<NavigationScope>();
+            Set(scope, "_holder", InputTestViews.Bind(root).GetHolder());
+            root.SetActive(true);
+            if (!Application.isPlaying) InvokeScope(scope, "OnEnable");
+            AddButton(scope);
+            var other = Scope(0, false);
+            var otherButton = AddButton(other);
+
+            Assert.DoesNotThrow(Refresh);
+            Assert.That(scope.SortingCanvas, Is.Null);
+            Assert.That(eventSystem.currentSelectedGameObject, Is.SameAs(otherButton.gameObject),
+                "a scope without Canvas sorts below every Canvas");
+        }
+
+        [Test]
         public void NonBlockingScopeDoesNotStealValidFocusOnEveryRefresh()
         {
             var lower = Scope(0, false);
@@ -687,20 +738,6 @@ namespace AlicizaX.Input.Tests
 
             Assert.That(lower.NavigationSuppressed, Is.False);
             Assert.That(eventSystem.currentSelectedGameObject, Is.SameAs(first.gameObject));
-        }
-
-        [Test]
-        public void MissingNavigableFieldMigratesToNavigable()
-        {
-            var root = Keep(new GameObject("navigation-migration", typeof(RectTransform), typeof(Canvas)));
-            var scope = root.AddComponent<NavigationScope>();
-            Set(scope, "_hasNavigableField", false);
-            Set(scope, "_navigable", false);
-
-            scope.OnAfterDeserialize();
-
-            Assert.That(ReadInstance<bool>(scope, "_navigable"), Is.True);
-            Assert.That(ReadInstance<bool>(scope, "_hasNavigableField"), Is.True);
         }
     }
 }

@@ -1,24 +1,24 @@
 #if INPUTSYSTEM_SUPPORT
+using UnityEditor;
 using UnityEngine;
-using UnityEngine.UI;
 
-namespace UnityEditor.UI
+namespace AlicizaX.Input
 {
     [CustomEditor(typeof(HotkeyComponentBase), true)]
-    public class HotkeyComponentEditor : Editor
+    public class HotkeyComponentEditor : UnityEditor.Editor
     {
-        private static readonly GUIContent ComponentLabel = new GUIContent("Component");
+        private static readonly GUIContent SubmitTargetLabel = new GUIContent("Submit Target");
         private static readonly GUIContent HolderLabel = new GUIContent("Holder");
         private static readonly GUIContent InputActionLabel = new GUIContent("Input Action");
         private static readonly GUIContent PressTypeLabel = new GUIContent("Press Type");
         private SerializedProperty _hotkeyAction;
         private SerializedProperty _hotkeyPressType;
-        private SerializedProperty _component;
+        private SerializedProperty _submitTarget;
         private SerializedProperty _holder;
 
         private void OnEnable()
         {
-            _component = serializedObject.FindProperty("_component");
+            _submitTarget = serializedObject.FindProperty("_submitTarget");
             _holder = serializedObject.FindProperty("_holder");
             _hotkeyAction = serializedObject.FindProperty("_hotkeyAction");
             _hotkeyPressType = serializedObject.FindProperty("_hotkeyPressType");
@@ -43,7 +43,7 @@ namespace UnityEditor.UI
                 );
             }
 
-            if (hotkeyComponent is HotkeyComponent && _component.objectReferenceValue == null)
+            if (hotkeyComponent is HotkeyComponent && _submitTarget.objectReferenceValue == null)
             {
                 EditorGUILayout.HelpBox("No submit target was found on this object.", MessageType.Error);
             }
@@ -57,9 +57,9 @@ namespace UnityEditor.UI
             EditorGUILayout.LabelField("Hotkey Setting", EditorStyles.boldLabel);
 
             EditorGUI.BeginDisabledGroup(true);
-            if (_component != null)
+            if (_submitTarget != null)
             {
-                EditorGUILayout.PropertyField(_component, ComponentLabel);
+                EditorGUILayout.PropertyField(_submitTarget, SubmitTargetLabel);
             }
 
             EditorGUILayout.PropertyField(_holder, HolderLabel);

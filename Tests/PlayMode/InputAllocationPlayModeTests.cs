@@ -3,7 +3,6 @@ using System;
 using System.Collections;
 using System.Reflection;
 using AlicizaX.UI.Runtime;
-using AlicizaX.UI.UXNavigation;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -55,7 +54,7 @@ namespace AlicizaX.Input.Tests
                 for (int i = 0; i < 2000; i++)
                 {
                     UXInput.Reader.IsPressed(jump);
-                    UXInput.Reader.IsButtonPressed(jump);
+                    UXInput.Reader.IsPressed(jump);
                     UXInput.Reader.ReadValue<Vector2>(move);
                     state.Once(jump);
                     state.Toggle(jump);
@@ -203,9 +202,12 @@ namespace AlicizaX.Input.Tests
         {
             AddKeyboard();
             InputAction jump = Action("Jump");
+            // 预热与测量完全相同的调用路径：首次 JIT 的字符串字面量驻留不属于稳态分配。
+            _ = UXInput.Watch.CurrentProfileId;
             UXInput.Glyph.GetDisplayName("<Keyboard>/space");
             UXInput.Glyph.GetGlyphKeyFromControlPath("<Keyboard>/space");
             UXInput.Glyph.GetDisplayName(jump);
+            UXInput.Glyph.GetBindingControlPath(jump);
 
             long bytes = 0;
             yield return InputAllocationCapture.Measure(
@@ -214,7 +216,7 @@ namespace AlicizaX.Input.Tests
                 {
                     for (int i = 0; i < 2000; i++)
                     {
-                        _ = UXInput.Glyph.CurrentProfileId;
+                        _ = UXInput.Watch.CurrentProfileId;
                         _ = UXInput.Glyph.GetDisplayName("<Keyboard>/space");
                         _ = UXInput.Glyph.GetGlyphKeyFromControlPath("<Keyboard>/space");
                         _ = UXInput.Glyph.GetDisplayName(jump);
@@ -508,7 +510,6 @@ namespace AlicizaX.Input.Tests
                 overlay.SetActive(false);
                 var blocker = overlay.AddComponent<NavigationScope>();
                 SetScope(blocker, "_holder", root.GetComponent<TestHolder>());
-                blocker.Navigable = false;
                 overlay.SetActive(true);
                 Assert.That(canvas.overrideSorting, Is.True);
                 Assert.That(blocker.IsAlive, Is.True);

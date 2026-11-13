@@ -1,6 +1,5 @@
 #if INPUTSYSTEM_SUPPORT
 using System.Reflection;
-using AlicizaX.UI.UXNavigation;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;

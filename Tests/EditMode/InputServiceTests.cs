@@ -8,12 +8,14 @@ namespace AlicizaX.Input.Tests
     public sealed class InputServiceTests : InputDeviceTestBase
     {
         [Test]
-        public void ShutdownClearsLookup()
+        public void ShutdownClearsLookupAndReleasesModules()
         {
+            var reader = UXInput.Reader;
             UXInput.Shutdown();
-            Assert.That(UXInput.Reader.ResolveAction("Gameplay/Jump"), Is.Null);
-            Assert.That(UXInput.Reader.TryResolveAction("Gameplay/Jump", out _), Is.False);
-            Assert.That(UXInput.Reader.FindActionMap("Gameplay"), Is.Null);
+            Assert.That(UXInput.Reader, Is.Null);
+            Assert.That(reader.ResolveAction("Gameplay/Jump"), Is.Null);
+            Assert.That(reader.TryResolveAction("Gameplay/Jump", out _), Is.False);
+            Assert.That(reader.FindActionMap("Gameplay"), Is.Null);
         }
 
         [Test]
@@ -30,18 +32,20 @@ namespace AlicizaX.Input.Tests
                 "only MapName/ActionName full paths are registered");
             Assert.That(UXInput.Reader.ResolveAction("Gameplay/Missing"), Is.Null);
 
+            var reader = UXInput.Reader;
             UXInput.Shutdown();
 
-            Assert.That(UXInput.Reader.Actions, Is.Null);
-            Assert.That(UXInput.Reader.FindActionMap("Gameplay"), Is.Null);
-            Assert.That(UXInput.Reader.TryResolveAction("Gameplay/Jump", out _), Is.False);
+            Assert.That(reader.Actions, Is.Null);
+            Assert.That(reader.FindActionMap("Gameplay"), Is.Null);
+            Assert.That(reader.TryResolveAction("Gameplay/Jump", out _), Is.False);
         }
 
         [Test]
         public void FindActionMapThrowsWhenRequestedAndAssetIsMissing()
         {
+            var reader = UXInput.Reader;
             UXInput.Shutdown();
-            Assert.Throws<InvalidOperationException>(() => UXInput.Reader.FindActionMap("Gameplay", true));
+            Assert.Throws<InvalidOperationException>(() => reader.FindActionMap("Gameplay", true));
         }
     }
 }

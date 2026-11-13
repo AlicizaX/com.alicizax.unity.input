@@ -3,37 +3,40 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
-[AddComponentMenu("UI/Input Glyph Image")]
-public sealed class InputGlyphImage : InputGlyphBehaviourBase
+namespace AlicizaX.Input
 {
-    [Header("Output")]
-    [SerializeField] private Image targetImage;
-
-    protected override void AssignTargetIfMissing()
+    [AddComponentMenu("UI/Input Glyph Image")]
+    public sealed class InputGlyphImage : InputGlyphBehaviourBase
     {
-        if (targetImage == null)
-        {
-            targetImage = GetComponent<Image>();
-        }
-    }
+        [Header("Output")]
+        [SerializeField] private Image targetImage;
 
-    protected override void RefreshGlyph()
-    {
-        if (targetImage == null)
+        protected override void AssignTargetIfMissing()
         {
-            return;
+            if (targetImage == null)
+            {
+                targetImage = GetComponent<Image>();
+            }
         }
 
-        InputAction action = ResolveAction();
-        Sprite sprite = null;
-        if (action != null)
+        protected override void RefreshGlyph()
         {
-            UXInput.Glyph.TryGetSprite(action, CompositePartName, out sprite);
-        }
+            if (targetImage == null || Glyph == null)
+            {
+                return;
+            }
 
-        if (targetImage.sprite != sprite)
-        {
-            targetImage.sprite = sprite;
+            InputAction action = ResolveAction();
+            Sprite sprite = null;
+            if (action != null)
+            {
+                Glyph.TryGetSprite(action, CompositePartName, out sprite);
+            }
+
+            if (targetImage.sprite != sprite)
+            {
+                targetImage.sprite = sprite;
+            }
         }
     }
 }

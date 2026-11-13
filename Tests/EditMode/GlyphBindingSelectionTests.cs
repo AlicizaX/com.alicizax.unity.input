@@ -42,9 +42,10 @@ namespace AlicizaX.Input.Tests
         [Test]
         public void MissingProfileFallsBackToFirstBinding()
         {
+            var glyph = UXInput.Glyph;
             UXInput.Shutdown();
             Assert.That(
-                UXInput.Glyph.GetBindingControlPath(_attack),
+                glyph.GetBindingControlPath(_attack),
                 Is.EqualTo("<Keyboard>/f"),
                 "the platform default profile must select the keyboard binding");
         }

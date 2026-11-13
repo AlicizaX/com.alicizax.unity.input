@@ -85,7 +85,7 @@ namespace AlicizaX.Input.Tests
             UXInput.Watch.OnInputTypeChanged += _ => types++;
             UXInput.Watch.OnInputProfileChanged += _ => profiles++;
             SetKeys(Key.A);
-            InputSystem.QueueStateEvent(mouse, new MouseState { delta = Vector2.one });
+            InputSystem.QueueStateEvent(mouse, new MouseState { delta = Vector2.one * 10f });
             InputSystem.Update();
             InputSystem.QueueStateEvent(pad, new GamepadState().WithButton(GamepadButton.South));
             InputSystem.Update();
@@ -93,6 +93,36 @@ namespace AlicizaX.Input.Tests
             Assert.That(types, Is.EqualTo(2));
             Assert.That(profiles, Is.EqualTo(2));
             Assert.That(UXInput.Watch.Current.DeviceId, Is.EqualTo(pad.deviceId));
+        }
+
+        [Test]
+        public void MouseJitterDoesNotLeaveGamepad()
+        {
+            var mouse = Track(InputSystem.AddDevice<Mouse>());
+            var pad = AddGamepad();
+            InputSystem.QueueStateEvent(pad, new GamepadState().WithButton(GamepadButton.South));
+            InputSystem.Update();
+            Assert.That(UXInput.Watch.IsNavigationInput, Is.True);
+
+            InputSystem.QueueStateEvent(mouse, new MouseState { delta = Vector2.right });
+            InputSystem.Update();
+            Assert.That(UXInput.Watch.IsNavigationInput, Is.True, "1px below the travel threshold");
+
+            InputSystem.QueueStateEvent(pad, new GamepadState());
+            InputSystem.Update();
+            InputSystem.QueueStateEvent(pad, new GamepadState().WithButton(GamepadButton.East));
+            InputSystem.Update();
+            for (int i = 0; i < 3; i++)
+            {
+                InputSystem.QueueStateEvent(mouse, new MouseState { delta = Vector2.right });
+                InputSystem.Update();
+            }
+
+            Assert.That(UXInput.Watch.IsNavigationInput, Is.True, "gamepad activity discards accumulated jitter");
+
+            InputSystem.QueueStateEvent(mouse, new MouseState { delta = Vector2.right * 10f });
+            InputSystem.Update();
+            Assert.That(UXInput.Watch.IsKeyboardMouseInput, Is.True);
         }
 
         [Test]
@@ -263,10 +293,12 @@ namespace AlicizaX.Input.Tests
             AddGamepad();
             Assert.That(UXInput.Watch.CurrentInputType, Is.EqualTo(InputWatch.InputType.Gamepad));
 
+            var watch = UXInput.Watch;
             UXInput.Shutdown();
 
-            Assert.That(UXInput.Watch.CurrentInputType, Is.EqualTo(InputWatch.InputType.KeyboardMouse));
-            Assert.That(UXInput.Watch.CurrentProfileId, Is.EqualTo("KeyboardMouse"));
+            Assert.That(UXInput.Watch, Is.Null);
+            Assert.That(watch.CurrentInputType, Is.EqualTo(InputWatch.InputType.KeyboardMouse));
+            Assert.That(watch.CurrentProfileId, Is.EqualTo("KeyboardMouse"));
         }
 
         [Test]

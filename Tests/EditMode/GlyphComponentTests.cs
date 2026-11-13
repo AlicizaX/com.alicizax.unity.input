@@ -1,6 +1,7 @@
 #if INPUTSYSTEM_SUPPORT
 using System.Reflection;
 using NUnit.Framework;
+using TMPro;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
@@ -55,6 +56,38 @@ namespace AlicizaX.Input.Tests
 
                 glyphImage.SetAction(null);
                 Assert.That(gameObject.GetComponent<Image>().sprite, Is.Null);
+            }
+            finally
+            {
+                Object.DestroyImmediate(gameObject);
+            }
+        }
+
+        [Test]
+        public void EmptyTemplateTextKeepsFollowingBindingChanges()
+        {
+            AddKeyboard();
+            var gameObject = new GameObject("glyph-text-empty-template", typeof(RectTransform), typeof(TextMeshProUGUI));
+            try
+            {
+                var text = gameObject.GetComponent<TextMeshProUGUI>();
+                text.text = string.Empty;
+                var glyphText = gameObject.AddComponent<InputGlyphText>();
+                typeof(InputGlyphText)
+                    .GetField("targetText", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .SetValue(glyphText, text);
+
+                InputAction jump = Action("Jump");
+                glyphText.SetAction(jump);
+                string before = text.text;
+                Assert.That(before, Is.Not.Empty);
+
+                UXInput.Rebind.PrepareRebind(jump, 0, "<Keyboard>/enter");
+                UXInput.Rebind.ConfirmApply(false, false);
+
+                Assert.That(text.text, Is.Not.EqualTo(before),
+                    "an empty template must stay empty; the rendered token must not become the next template");
+                Assert.That(text.text, Is.EqualTo(UXInput.Glyph.GetDisplayName(UXInput.Glyph.GetBindingControlPath(jump))));
             }
             finally
             {

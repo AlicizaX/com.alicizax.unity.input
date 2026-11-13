@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using AlicizaX;
+using AlicizaX.Input;
 using TMPro;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -87,6 +88,11 @@ public sealed class TestRebindScript : MonoBehaviour
         if (resetButton != null)
         {
             resetButton.onClick.RemoveListener(ResetToDefault);
+        }
+
+        if (!UXInput.IsInitialized)
+        {
+            return; // 输入层已关闭：事件随实例一起释放，无需退订
         }
 
         UXInput.Watch.OnContextChanged -= OnDeviceContextChanged;

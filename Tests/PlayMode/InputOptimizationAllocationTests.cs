@@ -197,7 +197,7 @@ namespace AlicizaX.Input.Tests
         }
 
         [UnityTest]
-        public IEnumerator HotkeySlotRegistrationAndDispatchAreMeasuredSeparately()
+        public IEnumerator HotkeyRegistrationAndDispatchAreMeasuredSeparately()
         {
             AddKeyboard();
             var root = new GameObject("allocation-hotkey", typeof(Canvas));
@@ -216,6 +216,9 @@ namespace AlicizaX.Input.Tests
             try
             {
                 target.SetActive(true);
+                typeof(HotkeyComponent)
+                    .GetField("_submitTarget", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .SetValue(trigger, submit);
                 InputHotkey hotkey = UXInput.Hotkey;
                 yield return InputAllocationCapture.Measure("hotkey-first-register", () =>
                     hotkey.RegisterHotkey(trigger, holder, reference, EHotkeyPressType.Performed));
@@ -224,7 +227,7 @@ namespace AlicizaX.Input.Tests
                     .GetField("_scopesByHolder", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(hotkey);
                 var scope = scopes[holder];
                 var dispatch = (Action<HotkeyScope, UIHolderObjectBase, InputAction, EHotkeyPressType>)
-                    typeof(InputHotkey).GetMethod("TryDispatchToScopeChain", BindingFlags.Instance | BindingFlags.NonPublic)
+                    typeof(InputHotkey).GetMethod("DispatchToScopeChain", BindingFlags.Instance | BindingFlags.NonPublic)
                         .CreateDelegate(typeof(Action<HotkeyScope, UIHolderObjectBase, InputAction, EHotkeyPressType>), hotkey);
                 yield return InputAllocationCapture.Measure("hotkey-first-submit", () =>
                     dispatch(scope, holder, action, EHotkeyPressType.Performed));
@@ -234,6 +237,30 @@ namespace AlicizaX.Input.Tests
                     for (int i = 0; i < 2000; i++) dispatch(scope, holder, action, EHotkeyPressType.Performed);
                 }, AssertZero);
                 Assert.That(submit.Count, Is.EqualTo(2001));
+
+                var secondTarget = new GameObject("submit-target-second");
+                secondTarget.SetActive(false);
+                secondTarget.transform.SetParent(root.transform, false);
+                var secondSubmit = secondTarget.AddComponent<SubmitCounter>();
+                var secondTrigger = secondTarget.AddComponent<HotkeyComponent>();
+                typeof(HotkeyComponent)
+                    .GetField("_submitTarget", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .SetValue(secondTrigger, secondSubmit);
+                secondTarget.SetActive(true);
+                yield return InputAllocationCapture.Measure("hotkey-second-register", () =>
+                    hotkey.RegisterHotkey(secondTrigger, holder, reference, EHotkeyPressType.Performed));
+
+                // 预热 second trigger 的 BaseEventData，再测稳定态。
+                dispatch(scope, holder, action, EHotkeyPressType.Performed);
+                Assert.That(secondSubmit.Count, Is.EqualTo(1));
+
+                yield return InputAllocationCapture.Measure("hotkey-2000-duplicate-dispatches", () =>
+                {
+                    for (int i = 0; i < 2000; i++) dispatch(scope, holder, action, EHotkeyPressType.Performed);
+                }, AssertZero);
+                Assert.That(secondSubmit.Count, Is.EqualTo(2001));
+                Assert.That(submit.Count, Is.EqualTo(2001), "the last registered trigger consumes the press");
+
                 yield return InputAllocationCapture.Measure("hotkey-20-unregister-register", () =>
                 {
                     for (int i = 0; i < 20; i++)

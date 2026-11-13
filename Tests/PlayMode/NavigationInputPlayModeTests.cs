@@ -2,7 +2,6 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using AlicizaX.UI.Runtime;
-using AlicizaX.UI.UXNavigation;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.EventSystems;

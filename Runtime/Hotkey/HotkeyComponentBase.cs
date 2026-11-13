@@ -1,8 +1,9 @@
 #if INPUTSYSTEM_SUPPORT
 using AlicizaX.UI.Runtime;
+using UnityEngine;
 using UnityEngine.InputSystem;
 
-namespace UnityEngine.UI
+namespace AlicizaX.Input
 {
     public abstract class HotkeyComponentBase : MonoBehaviour
     {
@@ -10,49 +11,44 @@ namespace UnityEngine.UI
         [SerializeField] private InputActionReference _hotkeyAction;
         [SerializeField] private EHotkeyPressType _hotkeyPressType = EHotkeyPressType.Performed;
 
+        /// <summary>注册令牌；只由 InputHotkey 的注册/注销路径写入。</summary>
+        internal HotkeyRegistrationToken Registration;
+
+        internal bool IsRegistered => Registration.IsRegistered;
+
+        /// <summary>切换绑定；新配置注册失败时回滚字段并保留旧注册。</summary>
         public InputActionReference HotkeyAction
         {
             get => _hotkeyAction;
             set
             {
                 if (ReferenceEquals(_hotkeyAction, value))
-                {
                     return;
-                }
 
-                bool shouldRebind = Application.isPlaying && isActiveAndEnabled;
-                if (shouldRebind)
-                {
-                    UnregisterHotkey();
-                }
-
+                InputActionReference previous = _hotkeyAction;
                 _hotkeyAction = value;
 
-                if (shouldRebind)
-                {
-                    RegisterHotkey();
-                }
+                if (Application.isPlaying && isActiveAndEnabled && !RegisterHotkey())
+                    _hotkeyAction = previous;
             }
         }
 
         public EHotkeyPressType HotkeyPressType => _hotkeyPressType;
-        public UIHolderObjectBase HotkeyHolder => _holder;
 
-        internal bool IsRegistered;
-        internal InputAction RegisteredAction;
-        internal UIHolderObjectBase RegisteredHolder;
-        internal EHotkeyPressType RegisteredPressType;
+        public UIHolderObjectBase HotkeyHolder => _holder;
 
         protected virtual void Reset()
         {
             AssignHolder();
         }
 
+        /// <summary>子类覆盖时必须调用 base，否则注册/注销会失配。</summary>
         protected virtual void OnEnable()
         {
             RegisterHotkey();
         }
 
+        /// <summary>子类覆盖时必须调用 base，否则注册/注销会失配。</summary>
         protected virtual void OnDisable()
         {
             UnregisterHotkey();
@@ -68,11 +64,13 @@ namespace UnityEngine.UI
         public abstract void TriggerHotkey();
 
         /// <summary>
-        /// 注册到当前输入会话。输入层尚未创建（或已销毁）时保持未注册，由 Holder/Action 配置决定是否有效。
+        /// 注册到当前输入会话。没有输入会话时返回 true 并保持未注册（输入层初始化不会补注册，组件需在其后启用）；
+        /// 配置无效时返回 false，调用方据此回滚 HotkeyAction。
         /// </summary>
-        private void RegisterHotkey()
+        internal bool RegisterHotkey()
         {
-            UXInput.Hotkey?.RegisterHotkey(this, _holder, _hotkeyAction, _hotkeyPressType);
+            InputHotkey hotkey = UXInput.Hotkey;
+            return hotkey == null || hotkey.RegisterHotkey(this, _holder, _hotkeyAction, _hotkeyPressType);
         }
 
         private void UnregisterHotkey()

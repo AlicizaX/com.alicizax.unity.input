@@ -45,7 +45,7 @@ namespace AlicizaX.Input.Tests
             InputAction back = map.AddAction("Back", InputActionType.Button, "<Keyboard>/escape");
             _asset.Enable();
             _reference = InputActionReference.Create(back);
-            _hotkey = new InputHotkey(_asset);
+            _hotkey = new InputHotkey(new InputReader(_asset, new InputBindingVersion()));
 
             var holderObject = Track(new GameObject("hotkey-holder"));
             holderObject.layer = UIComponent.UIShowLayer;
@@ -92,14 +92,29 @@ namespace AlicizaX.Input.Tests
             _hotkey.RegisterHotkey(_trigger, _holder, _reference, EHotkeyPressType.Performed);
 
             Assert.That(_trigger.IsRegistered, Is.True);
-            Assert.That(_trigger.RegisteredAction, Is.SameAs(_reference.action));
+            Assert.That(_trigger.Registration.Action, Is.SameAs(_reference.action));
             Assert.That(RegistryCount("_scopesByHolder"), Is.EqualTo(1));
             Assert.That(RegistryCount("_actionStates"), Is.EqualTo(1));
-            Assert.That(RegistryCount("_scopeList"), Is.EqualTo(1));
         }
 
         [Test]
-        public void DuplicateRegistrationOnSameHolderIsRejected()
+        public void ReRegisteringOnlyTriggerKeepsScopeAndActivationOrder()
+        {
+            _hotkey.RegisterHotkey(_trigger, _holder, _reference, EHotkeyPressType.Performed);
+            HotkeyScope scope = _trigger.Registration.Scope;
+            ulong serial = scope.ActivationSerial;
+
+            Assert.That(_hotkey.RegisterHotkey(_trigger, _holder, _reference, EHotkeyPressType.Started), Is.True);
+
+            Assert.That(_trigger.Registration.Scope, Is.SameAs(scope), "replacing the only trigger must not rebuild the scope");
+            Assert.That(scope.ActivationSerial, Is.EqualTo(serial), "a background window must not jump to the front");
+            Assert.That(_trigger.Registration.PressType, Is.EqualTo(EHotkeyPressType.Started));
+            Assert.That(RegistryCount("_scopesByHolder"), Is.EqualTo(1));
+            Assert.That(RegistryCount("_actionStates"), Is.EqualTo(1));
+        }
+
+        [Test]
+        public void MultipleHotkeysOnSameHolderAreAccepted()
         {
             var secondObject = Track(new GameObject("hotkey-trigger-2"));
             var secondTrigger = secondObject.AddComponent<HotkeyComponent>();
@@ -108,9 +123,60 @@ namespace AlicizaX.Input.Tests
             _hotkey.RegisterHotkey(secondTrigger, _holder, _reference, EHotkeyPressType.Performed);
 
             Assert.That(_trigger.IsRegistered, Is.True);
-            Assert.That(secondTrigger.IsRegistered, Is.False);
+            Assert.That(secondTrigger.IsRegistered, Is.True);
             Assert.That(RegistryCount("_scopesByHolder"), Is.EqualTo(1));
             Assert.That(RegistryCount("_actionStates"), Is.EqualTo(1));
+        }
+
+        [Test]
+        public void PassThroughActionIsRejected()
+        {
+            _asset.Disable();
+            InputActionMap map = _asset.FindActionMap("UI");
+            InputAction passThrough = map.AddAction("PassThrough", InputActionType.PassThrough, "<Keyboard>/f3");
+            var reference = InputActionReference.Create(passThrough);
+            try
+            {
+                bool registered = _hotkey.RegisterHotkey(
+                    _trigger, _holder, reference, EHotkeyPressType.Performed);
+
+                Assert.That(registered, Is.False);
+                Assert.That(_trigger.IsRegistered, Is.False);
+                Assert.That(RegistryCount("_actionStates"), Is.Zero);
+            }
+            finally
+            {
+                Object.DestroyImmediate(reference);
+            }
+        }
+
+        [Test]
+        public void MultipleHotkeyComponentsOnOneGameObjectAreSupported()
+        {
+            var gameObject = Track(new GameObject("multi-hotkey-object"));
+            var first = gameObject.AddComponent<HotkeyComponent>();
+            var second = gameObject.AddComponent<HotkeyComponent>();
+
+            Assert.That(first, Is.Not.Null);
+            Assert.That(second, Is.Not.Null);
+
+            _hotkey.RegisterHotkey(first, _holder, _reference, EHotkeyPressType.Performed);
+            _hotkey.RegisterHotkey(second, _holder, _reference, EHotkeyPressType.Performed);
+
+            Assert.That(first.IsRegistered, Is.True);
+            Assert.That(second.IsRegistered, Is.True);
+        }
+
+        [Test]
+        public void LastRegisteredTriggerOnSameHolderWins()
+        {
+            CountingTrigger first = CreateCountingTrigger(_holder, EHotkeyPressType.Performed);
+            CountingTrigger second = CreateCountingTrigger(_holder, EHotkeyPressType.Performed);
+
+            Dispatch(GetScope(_holder), _holder, EHotkeyPressType.Performed);
+
+            Assert.That(first.TriggerCount, Is.Zero);
+            Assert.That(second.TriggerCount, Is.EqualTo(1));
         }
 
         [Test]
@@ -123,7 +189,6 @@ namespace AlicizaX.Input.Tests
             Assert.That(_trigger.IsRegistered, Is.False);
             Assert.That(RegistryCount("_scopesByHolder"), Is.Zero);
             Assert.That(RegistryCount("_actionStates"), Is.Zero);
-            Assert.That(RegistryCount("_scopeList"), Is.Zero);
         }
 
         [Test]
@@ -135,7 +200,6 @@ namespace AlicizaX.Input.Tests
 
             Assert.That(_trigger.IsRegistered, Is.False);
             Assert.That(RegistryCount("_scopesByHolder"), Is.Zero);
-            Assert.That(RegistryCount("_scopeList"), Is.Zero);
         }
 
         [Test]
@@ -148,7 +212,6 @@ namespace AlicizaX.Input.Tests
             Assert.That(_trigger.IsRegistered, Is.False);
             Assert.That(RegistryCount("_scopesByHolder"), Is.Zero);
             Assert.That(RegistryCount("_actionStates"), Is.Zero);
-            Assert.That(RegistryCount("_scopeList"), Is.Zero);
             Assert.That(_reference.action.enabled, Is.True, "hotkey cleanup does not own action lifetime");
         }
 
@@ -207,20 +270,20 @@ namespace AlicizaX.Input.Tests
             var component = targetObject.AddComponent<HotkeyComponent>();
 
             MethodInfo resolve = typeof(HotkeyComponent).GetMethod(
-                "ResolveSubmitTarget",
+                "ResolveSubmitTargets",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.That(resolve, Is.Not.Null);
             resolve.Invoke(component, null);
 
-            FieldInfo handlerField = typeof(HotkeyComponent).GetField(
-                "_submitHandler",
+            FieldInfo targetField = typeof(HotkeyComponent).GetField(
+                "_submitTarget",
                 BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.That(handlerField, Is.Not.Null);
-            Assert.That(handlerField.GetValue(component), Is.TypeOf<Button>());
+            Assert.That(targetField, Is.Not.Null);
+            Assert.That(targetField.GetValue(component), Is.TypeOf<Button>());
         }
 
         [Test]
-        public void ScopeChainCachesParentHolderAndFindsNearestScope()
+        public void ScopeChainFindsNearestScope()
         {
             var parentObject = Track(new GameObject("hotkey-parent-holder"));
             parentObject.layer = UIComponent.UIShowLayer;
@@ -240,14 +303,31 @@ namespace AlicizaX.Input.Tests
             _hotkey.RegisterHotkey(childTrigger, child, _reference, EHotkeyPressType.Performed);
 
             MethodInfo find = typeof(InputHotkey).GetMethod(
-                "FindTopScopeInsideHolder",
+                "FindLeafScope",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.That(find, Is.Not.Null);
             var leafScope = (HotkeyScope)find.Invoke(_hotkey, new object[] { child });
 
             Assert.That(leafScope, Is.Not.Null);
             Assert.That(leafScope.Holder, Is.SameAs(child));
-            Assert.That(leafScope.ParentHolder, Is.SameAs(parent));
+            Assert.That(leafScope.IsInside(parent), Is.True);
+        }
+
+        [Test]
+        public void DispatchBubblesPastAncestorHolderWithoutScope()
+        {
+            var window = CreateHolder("bubble-window");
+            var panel = CreateHolder("bubble-panel", window.transform);
+            var widget = CreateHolder("bubble-widget", panel.transform);
+
+            CountingTrigger windowTrigger = CreateCountingTrigger(window, EHotkeyPressType.Performed);
+            CountingTrigger widgetTrigger = CreateCountingTrigger(widget, EHotkeyPressType.Started);
+
+            Dispatch(GetScope(widget), window, EHotkeyPressType.Performed);
+
+            Assert.That(windowTrigger.TriggerCount, Is.EqualTo(1),
+                "bubbling must skip ancestors without a scope");
+            Assert.That(widgetTrigger.TriggerCount, Is.Zero);
         }
 
         [Test]
@@ -284,13 +364,11 @@ namespace AlicizaX.Input.Tests
             Assert.That(state, Is.Not.Null);
             Assert.That(scope, Is.Not.Null);
 
-            SetField(state, "HasPressTarget", true);
             SetField(state, "FocusHolder", _holder);
             SetField(state, "LeafScope", scope);
 
             _hotkey.ResetPressTargets();
 
-            Assert.That((bool)GetField(state, "HasPressTarget"), Is.False);
             Assert.That(GetField(state, "FocusHolder"), Is.Null);
             Assert.That(GetField(state, "LeafScope"), Is.Null);
         }
@@ -339,7 +417,7 @@ namespace AlicizaX.Input.Tests
         private void Dispatch(HotkeyScope leafScope, UIHolderObjectBase stopHolder, EHotkeyPressType pressType)
         {
             MethodInfo dispatch = typeof(InputHotkey).GetMethod(
-                "TryDispatchToScopeChain",
+                "DispatchToScopeChain",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.That(dispatch, Is.Not.Null);
             dispatch.Invoke(_hotkey, new object[] { leafScope, stopHolder, _reference.action, pressType });

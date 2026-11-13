@@ -110,7 +110,7 @@ namespace AlicizaX.Input.Tests
                 int refreshes = glyph.RefreshCount;
                 UXInput.Rebind.ResetAllBindings(save: false);
                 Assert.That(glyph.RefreshCount, Is.EqualTo(refreshes + 1));
-                Assert.That(trigger.RegisteredAction, Is.SameAs(asset.FindAction("Gameplay/Jump")));
+                Assert.That(trigger.Registration.Action, Is.SameAs(asset.FindAction("Gameplay/Jump")));
                 yield return null;
             }
             finally
@@ -120,6 +120,28 @@ namespace AlicizaX.Input.Tests
                 InputTestViews.UnbindAll();
                 Object.DestroyImmediate(holderObject);
                 Object.DestroyImmediate(reference);
+                Object.DestroyImmediate(asset);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator CodeInitializationAppliesConfigurationBeforeAwake()
+        {
+            UXInput.Shutdown();
+            var asset = InputTestAssets.Create();
+            InputService service = null;
+            try
+            {
+                InputService.Initialize(asset, null);
+                service = Object.FindObjectOfType<InputService>();
+                Assert.That(service, Is.Not.Null);
+                Assert.That(UXInput.IsInitialized, Is.True, "Awake must run after the asset is assigned");
+                Assert.That(UXInput.Reader.Actions, Is.SameAs(asset));
+                yield return null;
+            }
+            finally
+            {
+                if (service != null) Object.DestroyImmediate(service.gameObject);
                 Object.DestroyImmediate(asset);
             }
         }
@@ -223,9 +245,8 @@ namespace AlicizaX.Input.Tests
             Assert.That(UXInput.Hotkey, Is.Null);
             Assert.That(InputHotkeyRegistryCount(hotkey, "_scopesByHolder"), Is.Zero);
             Assert.That(InputHotkeyRegistryCount(hotkey, "_actionStates"), Is.Zero);
-            Assert.That(InputHotkeyRegistryCount(hotkey, "_scopeList"), Is.Zero);
-            Assert.That(UXInput.Reader.Actions, Is.Null);
-            Assert.That(UXInput.Rebind.IsInitialized, Is.False);
+            Assert.That(UXInput.Reader, Is.Null);
+            Assert.That(UXInput.Rebind, Is.Null);
 
             InputTestViews.UnbindAll();
             Object.Destroy(holderObject);

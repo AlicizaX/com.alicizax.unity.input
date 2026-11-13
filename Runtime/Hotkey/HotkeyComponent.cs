@@ -1,66 +1,127 @@
 #if INPUTSYSTEM_SUPPORT
 using System;
+using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.Serialization;
 
-namespace UnityEngine.UI
+namespace AlicizaX.Input
 {
-    [DisallowMultipleComponent]
+    /// <summary>
+    /// 单个热键组件；同一 GameObject 可挂多个，各自持有提交目标和 action。
+    /// 提交目标和旁路监听者在编辑器期解析并序列化；运行时直接使用序列化结果，不再扫描组件。
+    /// </summary>
     public sealed class HotkeyComponent : HotkeyComponentBase
     {
-        [SerializeField] private Component _component;
+        // 编辑器期由 ResolveSubmitTargets 写回的已选提交目标。
+        [FormerlySerializedAs("_component")]
+        [SerializeField] private Component _submitTarget;
 
-        private ISubmitHandler _submitHandler;
-        private IHotkeySubmitListener[] _submitListeners = Array.Empty<IHotkeySubmitListener>();
+        [SerializeField] private Component[] _listenerComponents = Array.Empty<Component>();
+
         private BaseEventData _eventData;
         private EventSystem _eventSystem;
 
+#if UNITY_EDITOR
         protected override void Reset()
         {
             base.Reset();
-            ResolveSubmitTarget();
+            ResolveSubmitTargets();
         }
 
-        private void Awake()
-        {
-            ResolveSubmitTarget();
-        }
-
-#if UNITY_EDITOR
         protected override void OnValidate()
         {
             base.OnValidate();
-            ResolveSubmitTarget();
+            ResolveSubmitTargets();
+        }
+
+        /// <summary>
+        /// 编辑器期解析并写回 _submitTarget / _listenerComponents。
+        /// 运行时不得调用：目标必须来自预制体序列化。
+        /// </summary>
+        private void ResolveSubmitTargets()
+        {
+            if (_submitTarget != null && _submitTarget is not ISubmitHandler)
+                _submitTarget = null;
+
+            Component[] components = GetComponents<Component>();
+            Component fallback = null;
+            int listenerCount = 0;
+
+            for (int i = 0; i < components.Length; i++)
+            {
+                Component component = components[i];
+                bool isListener = component is IHotkeySubmitListener;
+                if (isListener)
+                    listenerCount++;
+
+                if (component is not ISubmitHandler)
+                    continue;
+
+                if (isListener)
+                {
+                    if (fallback == null)
+                        fallback = component;
+                    continue;
+                }
+
+                if (_submitTarget == null)
+                    _submitTarget = component;
+            }
+
+            if (_submitTarget == null)
+                _submitTarget = fallback;
+
+            _listenerComponents = listenerCount == 0
+                ? Array.Empty<Component>()
+                : new Component[listenerCount];
+
+            int index = 0;
+            for (int i = 0; i < components.Length; i++)
+            {
+                if (components[i] is IHotkeySubmitListener)
+                    _listenerComponents[index++] = components[i];
+            }
         }
 #endif
 
         public override void TriggerHotkey()
         {
-            if (_submitHandler == null && _submitListeners.Length == 0)
-            {
+            Component[] listeners = _listenerComponents;
+            if (_submitTarget == null && (listeners == null || listeners.Length == 0))
                 return;
-            }
 
             EventSystem currentEventSystem = EventSystem.current;
             if (currentEventSystem == null)
-            {
                 return;
-            }
 
             if (!ReferenceEquals(_eventSystem, currentEventSystem))
             {
                 _eventSystem = currentEventSystem;
                 _eventData = new BaseEventData(currentEventSystem);
             }
-
-            if (_submitHandler != null && IsActive(_submitHandler))
+            else
             {
-                _submitHandler.OnSubmit(_eventData);
+                // 复用的事件数据必须清掉上次的 used 标记，否则任一 handler 调用 Use() 后之后所有提交都被视为已处理。
+                _eventData.Reset();
             }
 
-            for (int i = 0; i < _submitListeners.Length; i++)
+            if (_submitTarget is Behaviour submitBehaviour
+                && IsActive(submitBehaviour)
+                && _submitTarget is ISubmitHandler submitHandler)
             {
-                IHotkeySubmitListener listener = _submitListeners[i];
-                if (ReferenceEquals(listener, _submitHandler) || !IsActive(listener))
+                submitHandler.OnSubmit(_eventData);
+            }
+
+            if (listeners == null)
+                return;
+
+            for (int i = 0; i < listeners.Length; i++)
+            {
+                Component component = listeners[i];
+                if (ReferenceEquals(component, _submitTarget)
+                    || component is not Behaviour listenerBehaviour
+                    || !IsActive(listenerBehaviour)
+                    || component is not IHotkeySubmitListener listener)
                 {
                     continue;
                 }
@@ -69,70 +130,10 @@ namespace UnityEngine.UI
             }
         }
 
-        private static bool IsActive(object handler)
+        private static bool IsActive(Behaviour behaviour)
         {
-            return handler is not Behaviour behaviour || behaviour.isActiveAndEnabled;
-        }
-
-        /// <summary>
-        /// 解析业务提交目标（优先非监听者），并缓存同 GameObject 的热键旁路监听者。
-        /// </summary>
-        private void ResolveSubmitTarget()
-        {
-            if (_component != null && _component is not ISubmitHandler)
-            {
-                _component = null;
-            }
-
-            Component[] components = GetComponents<Component>();
-
-            if (_component == null)
-            {
-                for (int i = 0; i < components.Length; i++)
-                {
-                    if (components[i] is ISubmitHandler && components[i] is not IHotkeySubmitListener)
-                    {
-                        _component = components[i];
-                        break;
-                    }
-                }
-            }
-
-            if (_component == null)
-            {
-                for (int i = 0; i < components.Length; i++)
-                {
-                    if (components[i] is ISubmitHandler)
-                    {
-                        _component = components[i];
-                        break;
-                    }
-                }
-            }
-
-            _submitHandler = _component as ISubmitHandler;
-
-            int count = 0;
-            for (int i = 0; i < components.Length; i++)
-            {
-                if (components[i] is IHotkeySubmitListener)
-                {
-                    count++;
-                }
-            }
-
-            _submitListeners = count == 0
-                ? Array.Empty<IHotkeySubmitListener>()
-                : new IHotkeySubmitListener[count];
-
-            int index = 0;
-            for (int i = 0; i < components.Length; i++)
-            {
-                if (components[i] is IHotkeySubmitListener listener)
-                {
-                    _submitListeners[index++] = listener;
-                }
-            }
+            // 接口引用比较不会走 UnityEngine.Object 的 fake-null；必须显式判空后再读原生属性。
+            return behaviour != null && behaviour.isActiveAndEnabled;
         }
     }
 }

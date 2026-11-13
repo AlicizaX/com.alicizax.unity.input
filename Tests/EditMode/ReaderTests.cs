@@ -93,10 +93,9 @@ namespace AlicizaX.Input.Tests
             Assert.That(UXInput.Reader.TryReadValue<Vector2>(move, out Vector2 value), Is.True);
             Assert.That(value, Is.EqualTo(Vector2.up));
             Assert.That(UXInput.Reader.IsPressed(move), Is.True);
-            Assert.That(UXInput.Reader.IsButtonPressed(jump), Is.False);
+            Assert.That(UXInput.Reader.IsPressed(jump), Is.False);
 
             SetKeys(Key.Space);
-            Assert.That(UXInput.Reader.IsButtonPressed(jump), Is.True);
             Assert.That(UXInput.Reader.IsPressed(jump), Is.True);
         }
 
@@ -227,22 +226,55 @@ namespace AlicizaX.Input.Tests
         {
             Assert.That(UXInput.Reader.ReadValue<Vector2>(null as InputAction), Is.EqualTo(Vector2.zero));
             Assert.That(UXInput.Reader.TryReadValue<Vector2>(null as InputAction, out _), Is.False);
-            Assert.That(UXInput.Reader.IsButtonPressed(null as InputAction), Is.False);
             Assert.That(UXInput.Reader.IsPressed(null as InputAction), Is.False);
+            Assert.That(UXInput.Reader.IsPressed(null as InputCompositePart), Is.False);
             Assert.That(UXInput.Reader.IsCompositePartPressed(null as InputAction, "Up"), Is.False);
             Assert.That(UXInput.Reader.ResolveAction(null), Is.Null);
             Assert.That(UXInput.Reader.ResolveAction(" "), Is.Null);
         }
 
         [Test]
-        public void IsButtonPressedRejectsValueActions()
+        public void CompositePartHandleIsCachedAndFollowsOverrides()
         {
             AddKeyboard();
             InputAction move = Action("Move");
-            SetKeys(Key.W);
+            InputCompositePart up = UXInput.Reader.ResolveCompositePart(move, "Up");
 
-            Assert.That(UXInput.Reader.IsPressed(move), Is.True);
-            Assert.That(UXInput.Reader.IsButtonPressed(move), Is.False, "IsButtonPressed only accepts InputActionType.Button");
+            Assert.That(up, Is.Not.Null);
+            Assert.That(UXInput.Reader.ResolveCompositePart(move, "UP"), Is.SameAs(up), "lookup is case-insensitive and cached");
+            Assert.That(UXInput.Reader.ResolveCompositePart(move, "Missing"), Is.Null);
+
+            SetKeys(Key.W);
+            Assert.That(up.IsPressed(), Is.True);
+
+            int upIndex = InputBindingResolver.FindCompositePartBindingIndex(move, "Up");
+            UXInput.Rebind.PrepareRebind(move, upIndex, "<Keyboard>/i");
+            UXInput.Rebind.ConfirmApply(false, false);
+            SetKeys(Key.W);
+            Assert.That(up.IsPressed(), Is.False, "the cached controls must be rebuilt after an override");
+            SetKeys(Key.I);
+            Assert.That(up.IsPressed(), Is.True);
+
+            var state = new InputReader.ButtonState();
+            SetKeys();
+            Assert.That(state.Once(up), Is.False);
+            SetKeys(Key.I);
+            Assert.That(state.Once(up), Is.True);
+            Assert.That(state.Once(up), Is.False);
+        }
+
+        [Test]
+        public void DirectOverrideWithoutRebindStillInvalidatesCompositeHandle()
+        {
+            AddKeyboard();
+            InputAction move = Action("Move");
+            InputCompositePart up = UXInput.Reader.ResolveCompositePart(move, "Up");
+            SetKeys(Key.W);
+            Assert.That(up.IsPressed(), Is.True);
+
+            move.ApplyBindingOverride(InputBindingResolver.FindCompositePartBindingIndex(move, "Up"), "<Keyboard>/i");
+            SetKeys(Key.I);
+            Assert.That(up.IsPressed(), Is.True, "BoundControlsChanged advances the binding version");
         }
 
         [Test]

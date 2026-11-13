@@ -93,7 +93,6 @@ namespace AlicizaX.Input.Tests
                 "default options must share the fixed excluded-controls array");
 
             RebindRequest probe = RebindRequest.ForTarget(RebindTarget.Gamepad);
-            Assert.That(probe.Target, Is.EqualTo(RebindTarget.Gamepad));
             Assert.That(probe.BindingGroup, Is.EqualTo("Gamepad"));
             Assert.That(probe.RequiredControlPath, Is.EqualTo("<Gamepad>"));
         }

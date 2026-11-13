@@ -8,7 +8,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.UIElements;
 
-namespace AlicizaX.UI.UXNavigation
+namespace AlicizaX.Input
 {
 
     [CustomEditor(typeof(NavigationScope))]
@@ -23,7 +23,6 @@ namespace AlicizaX.UI.UXNavigation
         private SerializedProperty _bakedSelectables;
         private SerializedProperty _rememberLastSelection;
         private SerializedProperty _blockLowerScopes;
-        private SerializedProperty _navigable;
 
         private VisualElement _root;
         private VisualElement _content;
@@ -61,7 +60,6 @@ namespace AlicizaX.UI.UXNavigation
                 || _holder == null
                 || _bakedSelectables == null
                 || _rememberLastSelection == null
-                || _navigable == null
                 || _blockLowerScopes == null)
             {
                 root.Add(AlicizaEditorUI.CreateEmptyState("Navigation Scope 属性不可用。"));
@@ -85,7 +83,6 @@ namespace AlicizaX.UI.UXNavigation
             _bakedSelectables = serializedObject.FindProperty("_bakedSelectables");
             _rememberLastSelection = serializedObject.FindProperty("_rememberLastSelection");
             _blockLowerScopes = serializedObject.FindProperty("_blockLowerScopes");
-            _navigable = serializedObject.FindProperty("_navigable");
         }
 
         private void RebuildContent()
@@ -227,9 +224,6 @@ namespace AlicizaX.UI.UXNavigation
             AddPolicyRow(
                 section.Body, "Remember", _rememberLastSelection,
                 "关闭重开或被更高层接管后恢复最近选中项。同一导航域内切换设备始终保留最近选中项。");
-            AddPolicyRow(
-                section.Body, "Focus", _navigable,
-                "开启：本域可以成为手柄/键盘焦点。关闭：本域不接收选中。");
             AddPolicyRow(
                 section.Body, "Block", _blockLowerScopes,
                 "开启：本域存活时挡住下层导航。关闭：不挡下层。");

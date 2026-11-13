@@ -2,8 +2,11 @@
 using System;
 using System.IO;
 using NUnit.Framework;
+using System.Text.RegularExpressions;
+using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.LowLevel;
+using UnityEngine.TestTools;
 using UnityEngine.InputSystem.Utilities;
 
 namespace AlicizaX.Input.Tests
@@ -57,30 +60,33 @@ namespace AlicizaX.Input.Tests
             Assert.That(UXInput.Glyph, Is.Not.SameAs(glyph));
             Assert.That(UXInput.Haptics, Is.Not.SameAs(haptics));
             Assert.That(reader.Actions, Is.Null);
-            Assert.That(rebind.Actions, Is.Null);
+            Assert.That(rebind.IsInitialized, Is.False);
             watch.OnInputActivity -= OldHandler;
         }
 
         [Test]
-        public void FailedBindingLoadClosesModulesAndAllowsCleanRestart()
+        public void CorruptBindingFileIsQuarantinedAndInputKeepsWorking()
         {
             AddKeyboard();
+            var jump = Action("Jump");
             UXInput.Shutdown();
+            jump.ApplyBindingOverride("<Keyboard>/tab");
             Directory.CreateDirectory(Path.GetDirectoryName(BindingFilePath));
             File.WriteAllText(BindingFilePath, "{ invalid json");
-            Assert.Catch(() => UXInput.Initialize(Asset, null, BindingFilePath));
-            Assert.That(UXInput.IsInitialized, Is.False);
-            Assert.That(UXInput.Navigation, Is.Null);
-            Assert.That(Action("Jump").enabled, Is.False);
-            Assert.That(UXInput.Reader.Actions, Is.Null);
-            Assert.That(UXInput.Rebind.Actions, Is.Null);
-            var failedWatch = UXInput.Watch;
-            int callbacks = 0;
-            failedWatch.OnInputActivity += _ => callbacks++;
-            File.Delete(BindingFilePath);
+
+            LogAssert.Expect(LogType.Warning, new Regex("Ignored unreadable binding file"));
             UXInput.Initialize(Asset, null, BindingFilePath);
-            SetKeys(Key.A);
-            Assert.That(callbacks, Is.Zero);
+
+            Assert.That(UXInput.IsInitialized, Is.True, "a broken player save must not disable input");
+            Assert.That(jump.enabled, Is.True);
+            Assert.That(jump.bindings[0].overridePath, Is.EqualTo("<Keyboard>/tab"), "entry overrides are restored");
+            Assert.That(File.Exists(BindingFilePath), Is.False);
+            Assert.That(File.Exists(BindingFilePath + ".corrupt"), Is.True, "the broken file is kept for diagnosis");
+
+            UXInput.Rebind.PrepareRebind(jump, 0, "<Keyboard>/f");
+            UXInput.Rebind.ConfirmApply(false, true);
+            Assert.That(File.ReadAllText(BindingFilePath), Does.Contain("<Keyboard>/f"));
+            Assert.That(File.Exists(BindingFilePath + ".tmp"), Is.False, "saves go through a temp file that is moved into place");
         }
 
         [Test]

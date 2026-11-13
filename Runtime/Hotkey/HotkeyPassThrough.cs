@@ -1,7 +1,7 @@
 #if INPUTSYSTEM_SUPPORT
 using UnityEngine;
 
-namespace UnityEngine.UI
+namespace AlicizaX.Input
 {
     [DisallowMultipleComponent]
     public sealed class HotkeyPassThrough : MonoBehaviour

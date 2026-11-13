@@ -4,167 +4,175 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-[AddComponentMenu("UI/Input Glyph Text")]
-public sealed class InputGlyphText : InputGlyphBehaviourBase
+namespace AlicizaX.Input
 {
-    [Header("Output")]
-    [SerializeField] private TMP_Text targetText;
-
-    private string _templateText;
-    private string _cachedTemplate;
-    private string _cachedToken;
-    private string _cachedText;
-
-    protected override void AssignTargetIfMissing()
+    [AddComponentMenu("UI/Input Glyph Text")]
+    public sealed class InputGlyphText : InputGlyphBehaviourBase
     {
-        if (targetText == null)
+        [Header("Output")]
+        [SerializeField] private TMP_Text targetText;
+
+        private string _templateText;
+        // 模板可以合法地为空串；不能用 IsNullOrEmpty(_templateText) 判断是否已缓存，否则会把渲染结果当成模板。
+        private bool _templateCached;
+        private string _cachedTemplate;
+        private string _cachedToken;
+        private string _cachedText;
+
+        protected override void AssignTargetIfMissing()
         {
-            targetText = GetComponent<TMP_Text>();
-        }
-    }
-
-    protected override void OnEnable()
-    {
-        CacheTemplateText();
-        base.OnEnable();
-    }
-
-    protected override void RefreshGlyph()
-    {
-        if (targetText == null)
-        {
-            return;
+            if (targetText == null)
+            {
+                targetText = GetComponent<TMP_Text>();
+            }
         }
 
-        CacheTemplateText();
-
-        InputAction action = ResolveAction();
-        if (action == null)
+        protected override void OnEnable()
         {
-            ApplyText(_templateText);
-            return;
+            CacheTemplateText();
+            base.OnEnable();
         }
 
-        string replacementToken = UXInput.Glyph.TryGetTag(
-            action,
-            CompositePartName,
-            out string tag,
-            out string displayFallback)
-            ? tag
-            : displayFallback;
-
-        if (string.IsNullOrEmpty(replacementToken))
+        protected override void RefreshGlyph()
         {
-            ApplyText(_templateText);
-            return;
+            if (targetText == null || Glyph == null)
+            {
+                return;
+            }
+
+            CacheTemplateText();
+
+            InputAction action = ResolveAction();
+            if (action == null)
+            {
+                ApplyText(_templateText);
+                return;
+            }
+
+            string replacementToken = Glyph.TryGetTag(
+                action,
+                CompositePartName,
+                out string tag,
+                out string displayFallback)
+                ? tag
+                : displayFallback;
+
+            if (string.IsNullOrEmpty(replacementToken))
+            {
+                ApplyText(_templateText);
+                return;
+            }
+
+            ApplyText(BuildDisplayText(_templateText, replacementToken));
         }
 
-        ApplyText(BuildDisplayText(_templateText, replacementToken));
-    }
-
-    private string BuildDisplayText(string template, string token)
-    {
-        if (string.Equals(_cachedTemplate, template, StringComparison.Ordinal)
-            && string.Equals(_cachedToken, token, StringComparison.Ordinal)
-            && _cachedText != null)
+        private string BuildDisplayText(string template, string token)
         {
+            if (string.Equals(_cachedTemplate, template, StringComparison.Ordinal)
+                && string.Equals(_cachedToken, token, StringComparison.Ordinal)
+                && _cachedText != null)
+            {
+                return _cachedText;
+            }
+
+            _cachedTemplate = template;
+            _cachedToken = token;
+            _cachedText = ReplaceFirstPlaceholder(template, token);
             return _cachedText;
         }
 
-        _cachedTemplate = template;
-        _cachedToken = token;
-        _cachedText = ReplaceFirstPlaceholder(template, token);
-        return _cachedText;
-    }
-
-    /// <summary>
-    /// 只替换第一个 {0}。不调用 string.Format，避免模板中的非法占位符每次刷新抛异常。
-    /// </summary>
-    private static string ReplaceFirstPlaceholder(string template, string token)
-    {
-        if (string.IsNullOrEmpty(template))
+        /// <summary>
+        /// 只替换第一个 {0}。不调用 string.Format，避免模板中的非法占位符每次刷新抛异常。
+        /// </summary>
+        private static string ReplaceFirstPlaceholder(string template, string token)
         {
-            return token;
-        }
-
-        int placeholderIndex = template.IndexOf("{0}", StringComparison.Ordinal);
-        if (placeholderIndex < 0)
-        {
-            return template;
-        }
-
-        return string.Create(
-            template.Length - 3 + token.Length,
-            new TextReplacementState(template, token, placeholderIndex),
-            static (span, state) =>
+            if (string.IsNullOrEmpty(template))
             {
-                state.Template.AsSpan(0, state.PlaceholderIndex).CopyTo(span);
-                state.Token.AsSpan().CopyTo(span.Slice(state.PlaceholderIndex));
-                int tailStart = state.PlaceholderIndex + 3;
-                state.Template.AsSpan(tailStart).CopyTo(span.Slice(state.PlaceholderIndex + state.Token.Length));
-            });
-    }
+                return token;
+            }
 
-    private readonly struct TextReplacementState
-    {
-        internal readonly string Template;
-        internal readonly string Token;
-        internal readonly int PlaceholderIndex;
+            int placeholderIndex = template.IndexOf("{0}", StringComparison.Ordinal);
+            if (placeholderIndex < 0)
+            {
+                return template;
+            }
 
-        internal TextReplacementState(string template, string token, int placeholderIndex)
-        {
-            Template = template;
-            Token = token;
-            PlaceholderIndex = placeholderIndex;
+            return string.Create(
+                template.Length - 3 + token.Length,
+                new TextReplacementState(template, token, placeholderIndex),
+                static (span, state) =>
+                {
+                    state.Template.AsSpan(0, state.PlaceholderIndex).CopyTo(span);
+                    state.Token.AsSpan().CopyTo(span.Slice(state.PlaceholderIndex));
+                    int tailStart = state.PlaceholderIndex + 3;
+                    state.Template.AsSpan(tailStart).CopyTo(span.Slice(state.PlaceholderIndex + state.Token.Length));
+                });
         }
-    }
 
-    private void CacheTemplateText()
-    {
-        if (targetText != null && string.IsNullOrEmpty(_templateText))
+        private readonly struct TextReplacementState
         {
+            internal readonly string Template;
+            internal readonly string Token;
+            internal readonly int PlaceholderIndex;
+
+            internal TextReplacementState(string template, string token, int placeholderIndex)
+            {
+                Template = template;
+                Token = token;
+                PlaceholderIndex = placeholderIndex;
+            }
+        }
+
+        private void CacheTemplateText()
+        {
+            if (_templateCached || targetText == null)
+            {
+                return;
+            }
+
             _templateText = targetText.text;
+            _templateCached = true;
         }
-    }
 
-    private void ApplyText(string text)
-    {
-        if (!string.Equals(targetText.text, text, StringComparison.Ordinal))
+        private void ApplyText(string text)
         {
-            targetText.text = text;
+            if (!string.Equals(targetText.text, text, StringComparison.Ordinal))
+            {
+                targetText.text = text;
+            }
         }
-    }
 
 #if UNITY_EDITOR
-    protected override void OnValidate()
-    {
-        base.OnValidate();
-        ValidateTemplate();
-    }
-
-    private void ValidateTemplate()
-    {
-        if (targetText == null)
+        protected override void OnValidate()
         {
-            return;
+            base.OnValidate();
+            ValidateTemplate();
         }
 
-        string template = targetText.text;
-        if (string.IsNullOrEmpty(template))
+        private void ValidateTemplate()
         {
-            return;
-        }
+            if (targetText == null)
+            {
+                return;
+            }
 
-        bool hasPlaceholder = template.IndexOf("{0}", StringComparison.Ordinal) >= 0;
-        bool hasBrace = template.IndexOf('{') >= 0;
-        if (hasBrace && !hasPlaceholder)
-        {
-            Debug.LogWarning(
-                "Input Glyph Text on '" + name + "' contains '{' but no {0} placeholder. " +
-                "The glyph token will not be inserted; use {0} where the key sprite should appear.",
-                this);
+            string template = targetText.text;
+            if (string.IsNullOrEmpty(template))
+            {
+                return;
+            }
+
+            bool hasPlaceholder = template.IndexOf("{0}", StringComparison.Ordinal) >= 0;
+            bool hasBrace = template.IndexOf('{') >= 0;
+            if (hasBrace && !hasPlaceholder)
+            {
+                Debug.LogWarning(
+                    "Input Glyph Text on '" + name + "' contains '{' but no {0} placeholder. " +
+                    "The glyph token will not be inserted; use {0} where the key sprite should appear.",
+                    this);
+            }
         }
-    }
 #endif
+    }
 }
 #endif
