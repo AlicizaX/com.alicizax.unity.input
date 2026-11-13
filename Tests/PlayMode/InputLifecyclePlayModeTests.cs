@@ -133,7 +133,7 @@ namespace AlicizaX.Input.Tests
             try
             {
                 InputService.Initialize(asset, null);
-                service = Object.FindObjectOfType<InputService>();
+                service = UnityObjectQuery.FindFirst<InputService>();
                 Assert.That(service, Is.Not.Null);
                 Assert.That(UXInput.IsInitialized, Is.True, "Awake must run after the asset is assigned");
                 Assert.That(UXInput.Reader.Actions, Is.SameAs(asset));
