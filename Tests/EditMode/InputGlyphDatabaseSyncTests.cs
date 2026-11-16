@@ -22,7 +22,7 @@ namespace AlicizaX.Input.Tests
                 SerializedProperty profiles = serialized.FindProperty("profiles");
                 Assert.That(
                     profiles.arraySize,
-                    Is.EqualTo(InputProfileCatalog.Editable.Count + 1),
+                    Is.EqualTo(InputProfileCatalog.Editable.Count),
                     "catalog profiles are appended while the custom profile is preserved");
 
                 SerializedProperty xbox = FindProfile(profiles, "Xbox");
@@ -36,7 +36,7 @@ namespace AlicizaX.Input.Tests
                     Is.EqualTo(1),
                     "missing fallback configuration is filled from the catalog");
 
-                Assert.That(FindProfile(profiles, "Touch"), Is.Not.Null, "Touch must be part of the fixed profile set");
+                Assert.That(FindProfile(profiles, "Touch"), Is.Null, "Touch must not be part of the glyph profile set");
                 Assert.That(FindProfile(profiles, "Custom"), Is.Not.Null, "unknown profiles must be preserved");
 
                 Assert.That(
@@ -51,7 +51,7 @@ namespace AlicizaX.Input.Tests
         }
 
         [Test]
-        public void SyncOnEmptyDatabaseCreatesTheWholeCatalog()
+        public void SyncOnEmptyDatabaseCreatesGlyphProfilesWithoutTouch()
         {
             InputGlyphDatabase database = ScriptableObject.CreateInstance<InputGlyphDatabase>();
             try
@@ -60,11 +60,58 @@ namespace AlicizaX.Input.Tests
 
                 var serialized = new SerializedObject(database);
                 SerializedProperty profiles = serialized.FindProperty("profiles");
-                Assert.That(profiles.arraySize, Is.EqualTo(InputProfileCatalog.Editable.Count));
+                Assert.That(profiles.arraySize, Is.EqualTo(InputProfileCatalog.Editable.Count - 1));
 
-                SerializedProperty touch = FindProfile(profiles, "Touch");
-                Assert.That(touch, Is.Not.Null);
-                Assert.That(touch.FindPropertyRelative("bindingGroupHints").arraySize, Is.GreaterThan(0));
+                foreach (InputProfileInfo profile in InputProfileCatalog.Editable)
+                {
+                    Assert.That(
+                        FindProfile(profiles, profile.Id) != null,
+                        Is.EqualTo(profile.Profile != InputWatch.InputProfile.Touch),
+                        profile.Id);
+                }
+            }
+            finally
+            {
+                Object.DestroyImmediate(database);
+            }
+        }
+
+        [TestCase("Touch")]
+        [TestCase("touch")]
+        public void SyncRemovesExistingTouchProfileAndRefreshesCache(string touchId)
+        {
+            InputGlyphDatabase database = ScriptableObject.CreateInstance<InputGlyphDatabase>();
+            try
+            {
+                SeedProfiles(database);
+                var serialized = new SerializedObject(database);
+                SerializedProperty profiles = serialized.FindProperty("profiles");
+                profiles.arraySize++;
+                SerializedProperty touch = profiles.GetArrayElementAtIndex(profiles.arraySize - 1);
+                touch.FindPropertyRelative("id").stringValue = touchId;
+                SerializedProperty entries = touch.FindPropertyRelative("entries");
+                entries.arraySize = 1;
+                SerializedProperty entry = entries.GetArrayElementAtIndex(0);
+                SerializedProperty paths = entry.FindPropertyRelative("controlPaths");
+                paths.arraySize = 1;
+                paths.GetArrayElementAtIndex(0).stringValue = "<Touchscreen>/primaryTouch/press";
+                entry.FindPropertyRelative("tmpSpriteName").stringValue = "TouchPress";
+                serialized.ApplyModifiedPropertiesWithoutUndo();
+                database.EditorRefreshCache();
+
+                string glyphKey = InputGlyphPathUtility.GetGlyphKeyFromControlPath("<Touchscreen>/primaryTouch/press");
+                Assert.That(database.TryGetGlyph(touchId, glyphKey, out _, out _), Is.True);
+
+                Assert.That(InputGlyphDatabaseWindow.SyncFixedProfiles(database), Is.True);
+
+                serialized.Update();
+                profiles = serialized.FindProperty("profiles");
+                Assert.That(FindProfile(profiles, touchId), Is.Null);
+                Assert.That(FindProfile(profiles, "Touch"), Is.Null);
+                Assert.That(database.TryGetGlyph(touchId, glyphKey, out _, out _), Is.False);
+                Assert.That(FindProfile(profiles, "Xbox").FindPropertyRelative("entries").arraySize, Is.EqualTo(1));
+                Assert.That(FindProfile(profiles, "Custom"), Is.Not.Null);
+                Assert.That(InputGlyphDatabaseWindow.SyncFixedProfiles(database), Is.False);
             }
             finally
             {

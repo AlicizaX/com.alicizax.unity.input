@@ -1019,8 +1019,8 @@ namespace AlicizaX.Input
             return changed;
         }
 
-        /// 只补齐缺失的固定 Profile，不截断、不重排、不清空已有条目。
-        /// 鍙ˉ榻愮己澶辩殑鍥哄畾 Profile锛屼笉鎴柇銆佷笉閲嶆帓銆佷笉娓呯┖宸叉湁鏉＄洰銆?
+        /// <summary>
+        /// 移除 Touch Profile 并补齐缺失的固定 Profile，保留其他已有条目。
         /// </summary>
         private static bool SyncFixedProfiles(SerializedObject serializedDatabase)
         {
@@ -1037,6 +1037,17 @@ namespace AlicizaX.Input
             }
 
             bool changed = false;
+            string touchId = InputProfileCatalog.GetId(InputWatch.InputProfile.Touch);
+            for (int i = profiles.arraySize - 1; i >= 0; i--)
+            {
+                SerializedProperty id = profiles.GetArrayElementAtIndex(i).FindPropertyRelative(ProfileIdPropertyName);
+                if (id != null && string.Equals(id.stringValue, touchId, StringComparison.OrdinalIgnoreCase))
+                {
+                    profiles.DeleteArrayElementAtIndex(i);
+                    changed = true;
+                }
+            }
+
             for (int i = 0; i < ProfileViews.Length; i++)
             {
                 InputProfileInfo view = ProfileViews[i];
@@ -1141,13 +1152,17 @@ namespace AlicizaX.Input
 
         private static InputProfileInfo[] BuildProfileViews()
         {
-            InputProfileInfo[] views = new InputProfileInfo[InputProfileCatalog.Editable.Count];
-            for (int i = 0; i < views.Length; i++)
+            var views = new List<InputProfileInfo>(InputProfileCatalog.Editable.Count);
+            for (int i = 0; i < InputProfileCatalog.Editable.Count; i++)
             {
-                views[i] = InputProfileCatalog.Editable[i];
+                InputProfileInfo profile = InputProfileCatalog.Editable[i];
+                if (profile.Profile != InputWatch.InputProfile.Touch)
+                {
+                    views.Add(profile);
+                }
             }
 
-            return views;
+            return views.ToArray();
         }
         private readonly struct SpritePreviewContext
         {
