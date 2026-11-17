@@ -53,7 +53,7 @@ namespace AlicizaX.Input
         private AlicizaRow _resolvedActionRow;
         private Label _resolvedActionLabel;
         private Label _targetHint;
-        private Label _eventsCountBadge;
+        private AlicizaBadge _eventsCountBadge;
         private VisualElement _compositeHost;
         private VisualElement _eventsHost;
         private VisualElement _expandAllButton;
