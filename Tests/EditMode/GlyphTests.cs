@@ -101,6 +101,8 @@ namespace AlicizaX.Input.Tests
 
             Assert.That(UXInput.Glyph.TryGetSprite("<Keyboard>/space", out Sprite sprite), Is.True);
             Assert.That(sprite, Is.SameAs(placeholder), "sprite queries may use the placeholder");
+            Assert.That(UXInput.Glyph.TryGetSprite("<Keyboard>/space", usePlaceholder: false, out sprite), Is.False);
+            Assert.That(sprite, Is.Null);
         }
 
         [Test]
@@ -125,6 +127,8 @@ namespace AlicizaX.Input.Tests
                 UXInput.Glyph.TryGetTag("<Gamepad>/buttonSouth", out string tag, out _),
                 Is.True);
             Assert.That(tag, Is.EqualTo("<sprite name=\"SouthButton\">"));
+            Assert.That(UXInput.Glyph.TryGetSprite("<Gamepad>/buttonSouth", usePlaceholder: false, out var sprite), Is.True);
+            Assert.That(sprite, Is.SameAs(south));
         }
 
         [Test]

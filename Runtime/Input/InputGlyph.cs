@@ -161,6 +161,11 @@ namespace AlicizaX.Input
         /// </summary>
         public bool TryGetSprite(string controlPath, out Sprite sprite)
         {
+            return TryGetSprite(controlPath, usePlaceholder: true, out sprite);
+        }
+
+        public bool TryGetSprite(string controlPath, bool usePlaceholder, out Sprite sprite)
+        {
             sprite = null;
 
             if (_database == null)
@@ -179,7 +184,7 @@ namespace AlicizaX.Input
                 return true;
             }
 
-            sprite = _database.Placeholder;
+            sprite = usePlaceholder ? _database.Placeholder : null;
             return sprite != null;
         }
 

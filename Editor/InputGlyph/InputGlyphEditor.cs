@@ -2,12 +2,9 @@
 using System;
 using System.Collections.Generic;
 using AlicizaX.Editor.UIToolkit;
-using TMPro;
 using UnityEditor;
 using UnityEditor.UIElements;
-using UnityEngine;
 using UnityEngine.InputSystem;
-using UnityEngine.UI;
 using UnityEngine.UIElements;
 
 namespace AlicizaX.Input
@@ -20,8 +17,6 @@ namespace AlicizaX.Input
         private const string ActionReferencePropertyName = "actionReference";
         private const string HotkeyTriggerPropertyName = "hotkeyTrigger";
         private const string CompositePartNamePropertyName = "compositePartName";
-        private const string TargetImagePropertyName = "targetImage";
-        private const string TargetTextPropertyName = "targetText";
         private const string ProfileEventsPropertyName = "profileEvents";
         private const string ProfileIdPropertyName = "profileId";
         private const string OnMatchedPropertyName = "onMatched";
@@ -43,16 +38,12 @@ namespace AlicizaX.Input
         private SerializedProperty _actionReference;
         private SerializedProperty _hotkeyTrigger;
         private SerializedProperty _compositePartName;
-        private SerializedProperty _targetImage;
-        private SerializedProperty _targetText;
         private SerializedProperty _profileEvents;
-        private SerializedProperty _shownTarget;
 
         private AlicizaRow _actionReferenceRow;
         private AlicizaRow _hotkeyTriggerRow;
         private AlicizaRow _resolvedActionRow;
         private Label _resolvedActionLabel;
-        private Label _targetHint;
         private AlicizaBadge _eventsCountBadge;
         private VisualElement _compositeHost;
         private VisualElement _eventsHost;
@@ -86,8 +77,6 @@ namespace AlicizaX.Input
             _actionReference = Find(ActionReferencePropertyName);
             _hotkeyTrigger = Find(HotkeyTriggerPropertyName);
             _compositePartName = Find(CompositePartNamePropertyName);
-            _targetImage = Find(TargetImagePropertyName);
-            _targetText = Find(TargetTextPropertyName);
             _profileEvents = Find(ProfileEventsPropertyName);
         }
 
@@ -100,7 +89,6 @@ namespace AlicizaX.Input
 
             serializedObject.Update();
             RefreshSourceSection();
-            RefreshTargetHint();
             RefreshEvents();
         }
 
@@ -152,42 +140,31 @@ namespace AlicizaX.Input
         private void BuildOutputSection(VisualElement parent)
         {
             AlicizaSection section = AlicizaEditorUI.CreateStaticSection("Output");
-            parent.Add(section);
+            using var property = serializedObject.GetIterator();
+            bool enterChildren = true;
+            while (property.NextVisible(enterChildren))
+            {
+                enterChildren = false;
+                switch (property.propertyPath)
+                {
+                    case "m_Script":
+                    case ActionSourceModePropertyName:
+                    case ActionReferencePropertyName:
+                    case HotkeyTriggerPropertyName:
+                    case CompositePartNamePropertyName:
+                    case ProfileEventsPropertyName:
+                        continue;
+                }
 
-            if (_targetImage != null)
-            {
-                _shownTarget = _targetImage;
-                AlicizaRow row = AlicizaEditorUI.AddPropertyRow(
-                    section.Body,
-                    "Target Image",
-                    _targetImage,
-                    objectType: typeof(UnityEngine.UI.Image),
-                    allowSceneObjects: true);
-                SetCaptionTooltip(row, "Image that receives the resolved glyph sprite.");
-            }
-            else if (_targetText != null)
-            {
-                _shownTarget = _targetText;
-                AlicizaRow row = AlicizaEditorUI.AddPropertyRow(
-                    section.Body,
-                    "Target TMP Text",
-                    _targetText,
-                    objectType: typeof(TMP_Text),
-                    allowSceneObjects: true);
-                SetCaptionTooltip(row, "Text component that receives the resolved glyph token.");
-            }
-            else
-            {
-                AlicizaEditorUI.AddValueRow(section.Body, "Render Target", "Not available", AlicizaValueTone.Warning);
-                section.Body.Add(AlicizaEditorUI.CreateHint("This glyph component has no render target field."));
-                return;
+                var field = new PropertyField(property.Copy());
+                field.AddToClassList("alicia-control");
+                section.Body.Add(field);
             }
 
-            _targetHint = AlicizaEditorUI.CreateHint(
-                "No render target is assigned. Glyph updates are skipped at runtime.");
-            _targetHint.style.marginTop = 4f;
-            _targetHint.style.display = DisplayStyle.None;
-            section.Body.Add(_targetHint);
+            if (section.Body.childCount > 0)
+            {
+                parent.Add(section);
+            }
         }
 
         private void BuildEventsSection(VisualElement parent)
@@ -332,17 +309,6 @@ namespace AlicizaX.Input
 
             AlicizaRow row = AlicizaEditorUI.AddRow(_compositeHost, "Composite Part", partField);
             SetCaptionTooltip(row, "Optional composite binding part, for example Up/Down/Left/Right.");
-        }
-
-        private void RefreshTargetHint()
-        {
-            if (_targetHint == null)
-            {
-                return;
-            }
-
-            bool assigned = _shownTarget != null && _shownTarget.objectReferenceValue != null;
-            _targetHint.style.display = assigned ? DisplayStyle.None : DisplayStyle.Flex;
         }
 
         private void RefreshEvents()
